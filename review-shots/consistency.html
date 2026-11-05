@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Consistency check</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1a1a;--mut:#5c5c5c;--line:#e3e3e3;--blue:#004dcb;--red:#c62828;--ok:#2e7d32}
+body{margin:0;font-family:"Open Sans",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:1280px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:28px 0 10px}
+p.sub{color:var(--mut);margin:0 0 8px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px}
+figcaption{font-weight:700;font-size:13px;margin-bottom:6px}.b{color:var(--red)}.a{color:var(--ok)}
+img{width:100%;border-radius:4px;display:block}
+ul{margin:10px 0 0;padding-left:20px;line-height:1.6;font-size:14px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);font-size:14px}
+th,td{text-align:left;padding:10px 14px;border-top:1px solid var(--line);vertical-align:top}th{background:#eef0f3;border-top:0}
+.ok{color:var(--ok);font-weight:600}
+@media(max-width:800px){.pair{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<h1>Whole-app consistency check</h1><p class="sub">I opened every screen and state at 1440px: Plan comparisons, New comparison, Review (to review and submitted), comment slide-out, Comparison failed, and the Delete modal.</p>
+
+<h2>1. Table headers looked different on each page</h2>
+<p class="sub">Plan comparisons used small UPPERCASE grey headers; Review changes used large Title Case on a lighter grey. Review now uses the same header style.</p>
+<div class="pair"><figure><figcaption class="b">Before: Review</figcaption><img src="c-before-review.jpg"></figure><figure><figcaption class="a">After: Review (matches the list)</figcaption><img src="c-after-review.jpg"></figure></div>
+<figure style="margin-top:12px"><figcaption>Reference: Plan comparisons header style</figcaption><img src="c-before-list.jpg"></figure>
+
+<h2>2–4. Failed page: no plan context, mismatched wording, wrong tab title</h2>
+<div class="pair"><figure><figcaption class="b">Before</figcaption><img src="c-before-failed.jpg"></figure><figure><figcaption class="a">After</figcaption><img src="c-after-failed.jpg"></figure></div>
+<ul><li><b>2.</b> It had no plan context. It now has the same <b>Plans compared</b> strip as Review; providers show "Not read".</li>
+<li><b>3.</b> The button said <b>Delete</b> but the modal said "Remove comparison?", "Remove" and "removed". It now says <b>Delete</b> everywhere: button, modal title, modal button and toast.</li>
+<li><b>4.</b> The browser tab title showed "Not extracted". It now shows the plan name.</li></ul>
+
+<h2>5–7. Slide-out and submitted state</h2>
+<div class="pair"><figure><figcaption class="b">Before</figcaption><img src="c-before-drawer.jpg"></figure><figure><figcaption class="a">After</figcaption><img src="c-after-drawer.jpg"></figure></div>
+<ul><li><b>5.</b> It said "Prior plan · John Hancock" while the page says "Prior provider". It now says <b>Prior provider / Current provider</b>, matching the page.</li>
+<li><b>6.</b> After submit, the read-only comment still looked like an editable input (white box, resize handle). It's now a grey, non-resizable box.</li>
+<li><b>7.</b> After submit, the hint still said "read or edit". It now says "Select a row to read the full AI comment".</li></ul>
+
+<h2>Already consistent (no change needed)</h2>
+<table><tr><th>Check</th><th>Result</th></tr>
+<tr><td>Page header: 24px bold title, CTAs top-right, grey divider, sticky</td><td class="ok">Same on all 4 pages</td></tr>
+<tr><td>Back link above the title on inner pages</td><td class="ok">Review, Failed, New comparison</td></tr>
+<tr><td>CTA order: tertiary, then secondary, then primary</td><td class="ok">Cancel · Delete · Submit; Cancel · Compare plans; Delete · Try again</td></tr>
+<tr><td>Button size</td><td class="ok">Regular everywhere</td></tr>
+<tr><td>Status badges: To review (amber), Submitted (green), Failed (red)</td><td class="ok">Same colours in the list and in page titles</td></tr>
+<tr><td>Modal: kit style, primary first, ✕ close</td><td class="ok">Delete and Discard modals match</td></tr>
+
+<tr><td>Font: Open Sans; icons: Font Awesome</td><td class="ok">Consistent</td></tr>
+</table></div></body></html>

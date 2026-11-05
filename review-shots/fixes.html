@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review changes fixes</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1a1a;--mut:#5c5c5c;--line:#e3e3e3;--blue:#004dcb;--red:#c62828}
+body{margin:0;font-family:"Open Sans",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:1280px;margin:0 auto;padding:24px 16px}
+h1{font-size:22px;margin:0 0 4px}p.sub{color:var(--mut);margin:0 0 20px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px}
+figcaption{font-weight:700;margin-bottom:8px}.b{color:var(--red)}.a{color:#2e7d32}
+img{width:100%;border-radius:4px;display:block}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;margin-top:20px;font-size:14px}
+th,td{text-align:left;padding:12px 14px;border-top:1px solid var(--line);vertical-align:top}th{background:#f0f2f5;border-top:0}
+td:first-child{font-weight:700;color:var(--blue);width:28px}
+@media(max-width:800px){.pair{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<h1>Review changes: UX check and fixes</h1><p class="sub">Same plan, same viewport (1440px). Left is before, right is after.</p>
+<div class="pair"><figure><figcaption class="b">Before</figcaption><img src="before.jpg" alt="Review changes before"></figure>
+<figure><figcaption class="a">After</figcaption><img src="after.jpg" alt="Review changes after"></figure></div>
+<table><tr><th>#</th><th>Problem found</th><th>Fix</th></tr>
+<tr><td>1</td><td>The Prior → Current band was glued to the top of the table, so it looked like part of the grid and felt odd.</td><td>Moved into its own <b>Plans compared</b> strip above the table, with a gap between them.</td></tr>
+<tr><td>2</td><td>Prior and Current looked the same: two small tags with names beside them.</td><td>Each provider has its own labelled cell. Current is tinted blue, and the arrow reads left to right.</td></tr>
+<tr><td>3</td><td>The band said PRIOR / CURRENT but the rows said WAS / NOW: two words for one idea.</td><td>Rows now say <b>PRIOR</b> / <b>CURRENT</b> as well, so one vocabulary is used on the page, the table and the slide-out.</td></tr>
+<tr><td>4</td><td>The plan name wasn't on the page at all, so you couldn't tell which plan you were reviewing.</td><td>Added <b>Plan</b> as the first cell of the strip.</td></tr>
+<tr><td>5</td><td>The filters were tucked at the far right of the band, away from the table they control.</td><td>Filters sit in a toolbar directly above the table, left-aligned, where your eye starts.</td></tr>
+<tr><td>6</td><td>Bug: the sticky header covered the top half of the info line ("AI found 7 changes…" was clipped).</td><td>Removed the header's overlap. The redundant info line is gone (the count is already in "All changes 7"), and the instruction is now a small hint on the right of the toolbar.</td></tr>
+</table></div></body></html>
