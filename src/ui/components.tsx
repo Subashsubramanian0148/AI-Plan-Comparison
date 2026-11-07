@@ -166,16 +166,15 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
   useEffect(() => {
     const fresh = files.filter(f => !seen.current.has(f.name)).map(f => f.name);
     files.forEach(f => seen.current.add(f.name));
-    if (!fresh.length) return;
-    setProgress(p => ({ ...p, ...Object.fromEntries(fresh.map(n => [n, 10])) }));
-    const t = setInterval(() => setProgress(p => {
-      const next: Record<string, number> = {};
-      for (const [n, v] of Object.entries(p)) if (v < 100) next[n] = Math.min(100, v + 30);
-      return next;
-    }), 250);
-    const stop = setTimeout(() => clearInterval(t), 1500);
-    return () => { clearInterval(t); clearTimeout(stop); };
+    if (fresh.length) setProgress(p => ({ ...p, ...Object.fromEntries(fresh.map(n => [n, 10])) }));
   }, [files]);
+  // One ticker while any file is still uploading, so adding another file doesn't stall the first.
+  const ticking = Object.values(progress).some(v => v < 100);
+  useEffect(() => {
+    if (!ticking) return;
+    const t = setInterval(() => setProgress(p => Object.fromEntries(Object.entries(p).map(([n, v]) => [n, Math.min(100, v + 30)]))), 250);
+    return () => clearInterval(t);
+  }, [ticking]);
   const uploading = files.some(f => progress[f.name] !== undefined && progress[f.name] < 100);
   const status = rejected.length ? 'error' : files.length && !uploading ? 'success' : 'default';
   const zone = (

@@ -12,7 +12,7 @@ const icons: Record<string, [string, string]> = {
   notes: ['message-lines', 'message'], file: ['file-lines', 'file-lines'],
   check: ['check', 'check'], circle: ['circle', 'circle'], checkCircle: ['circle-check', 'circle-check'], alertCircle: ['circle-exclamation', 'circle-exclamation'], calendar: ['calendar-day', 'calendar-day'], trash: ['trash-can', 'trash-can'], upload: ['arrow-up-from-bracket', 'arrow-up-from-bracket'], close: ['xmark', 'xmark'], info: ['circle-info', 'circle-info'], shield: ['shield-check', 'shield'],
   sparkles: ['sparkles', 'wand-magic-sparkles'], alert: ['triangle-exclamation', 'triangle-exclamation'],
-  edit: ['pen', 'pen'], view: ['eye', 'eye'], save: ['floppy-disk', 'floppy-disk'], menu: ['bars', 'bars'], spinner: ['spinner-third', 'spinner'],
+  edit: ['pen', 'pen'], list: ['list-check', 'list-check'], view: ['eye', 'eye'], save: ['floppy-disk', 'floppy-disk'], menu: ['bars', 'bars'], spinner: ['spinner-third', 'spinner'],
   bell: ['bell', 'bell'], gauge: ['gauge-min', 'gauge'], payroll: ['file-invoice', 'file-invoice'], user: ['user', 'user'],
   wrench: ['wrench', 'wrench'], transfer: ['right-left', 'right-left'], grid: ['grid-horizontal', 'table-cells'],
 };

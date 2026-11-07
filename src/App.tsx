@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Core from './core';
-import type { Bucket, Filters, PlanRecord, Request } from './core';
+import type { Bucket, Filters, PlanRecord, Provision, Request } from './core';
 import { Icon } from './ui/Icon';
 import coreLogo from './assets/core-logo.svg';
 import { TooltipLayer } from './ui/Tooltip';
 import noRecordsImg from './assets/no-records.png';
 import galileoLogo from './assets/galileo-logo.svg';
 import {
-  Avatar, Badge, Button, Card, IconButton, InputText, Modal, Select, UploadStep, Drawer,
+  Avatar, Badge, Button, IconButton, InputText, Modal, Select, UploadStep,
   TextArea, ToastStack, type ModalButton, type ToastItem,
 } from './ui/components';
 
@@ -20,6 +20,32 @@ const EMPTY_FILTERS: Filters = { plan: '', review: '', date: '', status: '' };
 // Provisions whose change alters what participants receive (match, vesting, access to money).
 const BENEFIT_IMPACT = /match|vesting|loan|withdrawal|hardship|contribution|distribution/i;
 const isBenefitImpact = (name: string) => BENEFIT_IMPACT.test(name);
+// Plan sections in document order; the review table groups its rows under these.
+const SECTION_ORDER = ['Eligibility', 'Contributions', 'Vesting', 'Service crediting', 'Loans and withdrawals', 'Retirement'];
+// Changes in review order: filtered, then grouped by plan section in document order.
+function orderedRows(r: PlanRecord, filter: string) {
+  const rows = r.provisions.filter(p => p.status !== 'match').filter(p => filter === 'all' || (filter === 'impact' ? isBenefitImpact(p.name)
+    : filter === 'unreviewed' ? Core.needsReview(p) : p.status === filter));
+  const sections = SECTION_ORDER.concat([...new Set(rows.map(p => p.category))].filter(c => !SECTION_ORDER.includes(c)));
+  return sections.flatMap(s => rows.filter(p => p.category === s));
+}
+// Word-level highlight: words only in this value are marked against the other plan's value.
+function diffWords(text: string, other: string, kind: 'ins' | 'del') {
+  const norm = (w: string) => w.toLowerCase().replace(/[^a-z0-9½%]/g, '');
+  const theirs = new Set(other.split(/\s+/).map(norm).filter(Boolean));
+  return text.split(/(\s+)/).map((w, i) => /^\s+$/.test(w) || !norm(w) || theirs.has(norm(w)) ? w
+    : <span key={i} className={`diff-${kind}`}>{w}</span>);
+}
+// Documents a failed comparison couldn't read: scanned files, else (sample data) the first current-plan file.
+function unreadableDocs(r: PlanRecord) {
+  const all = [...r.documents.prior, ...r.documents.current].filter(d => /scan/i.test(d.name)).map(d => d.name);
+  return all.length ? all : r.documents.current.slice(0, 1).map(d => d.name);
+}
+// How far a person has got signing off a comparison's changes.
+function reviewProgress(r: PlanRecord) {
+  const rows = r.provisions.filter(p => p.status !== 'match'), done = rows.filter(p => !Core.needsReview(p)).length;
+  return { done, total: rows.length, pct: rows.length ? Math.round((done / rows.length) * 100) : 0 };
+}
 const recordStatus = (r: PlanRecord) => r.status === 'cancelled' ? 'failed' : r.submittedAt ? 'submitted' : 'review';
 const ACCEPT = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -60,7 +86,6 @@ function varyChanges(r: PlanRecord): PlanRecord {
 export default function App() {
   const [records, setRecords] = useState<PlanRecord[]>(loadRecords);
   const [page, setPage] = useState<Page>('dashboard');
-  const [sort, setSort] = useState<{ key: 'plan' | 'prior' | 'current' | 'changes' | 'status'; dir: 1 | -1 } | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [draftFilters, setDraftFilters] = useState<Filters>(EMPTY_FILTERS);
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE);
@@ -68,10 +93,21 @@ export default function App() {
   const [request, setRequest] = useState<Request>(Core.newRequest);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [errorBucket, setErrorBucket] = useState<Bucket | null>(null);
-  const [, setTemplateOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  // "Compare plans" pause while the documents are read; the timer lets Cancel stop it.
+  const [comparing, setComparing] = useState(false);
+  // Simulated upload progress runs ~1.5s per batch (UploadStep); Compare waits until it settles.
+  const [uploading, setUploading] = useState(false);
+  const uploadTimer = useRef<number | undefined>(undefined);
+  const markUploading = () => { setUploading(true); clearTimeout(uploadTimer.current); uploadTimer.current = window.setTimeout(() => setUploading(false), 1600); };
+  const compareTimer = useRef<number | undefined>(undefined);
+  // Failed comparison being retried from New comparison; a successful compare replaces it.
+  const [retryOf, setRetryOf] = useState<string | null>(null);
   // Row being edited in the slide-out: prior value, current value and AI comment (`value`).
-  const [commentEdit, setCommentEdit] = useState<{ id: string; prior: string; current: string; value: string } | null>(null);
-  const [provisionFilter, setProvisionFilter] = useState('all');
+  // The change selected in the review workspace, with its unsaved draft (values, comment, sign-off).
+  const [commentEdit, setCommentEdit] = useState<{ id: string; prior: string; current: string; value: string; reviewed: boolean; resolution: string } | null>(null);
+  // Whether the selected change's values and comment are open for editing.
+  const [editing, setEditing] = useState(false);
   const [modal, setModal] = useState<ModalConfig | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [navOpen, setNavOpen] = useState(false);
@@ -80,7 +116,8 @@ export default function App() {
 
   const record = records.find(r => r.id === activeId);
   const editRow = commentEdit && record?.provisions.find(p => p.id === commentEdit.id);
-  const commentDirty = !!commentEdit && !!editRow && (commentEdit.value !== editRow.comment || commentEdit.prior !== editRow.prior || commentEdit.current !== editRow.current);
+  const commentDirty = !!commentEdit && !!editRow && (commentEdit.value !== editRow.comment || commentEdit.prior !== editRow.prior || commentEdit.current !== editRow.current
+    || commentEdit.reviewed !== !!editRow.reviewedAt || commentEdit.resolution !== (editRow.resolution ?? ''));
 
   /* ---------- infrastructure ---------- */
   const toast = useCallback((message: string, type: ToastItem['type'] = 'success') => {
@@ -121,7 +158,8 @@ export default function App() {
 
   /* ---------- navigation ---------- */
   const openPage = (next: Page) => {
-    setPage(next); setCommentEdit(null); setNavOpen(false);
+    setPage(next); setCommentEdit(null); setNavOpen(false); setRetryOf(null);
+    clearTimeout(compareTimer.current); setComparing(false);
     focusTop();
   };
 
@@ -139,40 +177,53 @@ export default function App() {
   };
   const navigate = (next: Page) => { if (page !== next) safeRoute(() => openPage(next)); };
 
-  const openCreate = () => safeRoute(() => { setRequest(Core.newRequest()); setUploadErrors([]); setErrorBucket(null); setTemplateOpen(false); setActiveId(null); setCommentEdit(null); setProvisionFilter('all'); setPage('create'); focusTop(); });
+  const openCreate = () => safeRoute(() => { setRequest(Core.newRequest()); setUploadErrors([]); setErrorBucket(null); setTemplateOpen(false); setActiveId(null); setCommentEdit(null); setRetryOf(null); setPage('create'); focusTop(); });
+  // Retry a failed comparison: keep every document that was read, drop only the unreadable one.
+  const retryFailed = (f: PlanRecord) => {
+    const bad = unreadableDocs(f), keep = (docs: Core.Doc[]) => docs.filter(d => !bad.includes(d.name));
+    setRequest({ prior: keep(f.documents.prior), current: keep(f.documents.current), template: f.template ? [f.template] : [] });
+    setUploadErrors([]); setErrorBucket(null); setTemplateOpen(!!f.template); setActiveId(null); setCommentEdit(null);
+    setRetryOf(f.id); setPage('create'); focusTop();
+  };
 
   const openReview = (id: string) => safeRoute(() => {
-    setActiveId(id); setPage('review'); setCommentEdit(null); setProvisionFilter('all'); setNavOpen(false); focusTop();
+    setActiveId(id); setPage('review'); setCommentEdit(null); setNavOpen(false); focusTop();
   });
 
 
   /* ---------- row edits: prior plan, current plan and AI comment ---------- */
-  const saveComment = () => {
-    if (!record || !commentEdit) return;
-    const value = commentEdit.value.trim(), prior = commentEdit.prior.trim(), current = commentEdit.current.trim();
-    if (!value) { toast('A comment cannot be empty.', 'error'); return; }
-    const row = record.provisions.find(p => p.id === commentEdit.id);
-    if (row && (value !== row.comment || prior !== row.prior || current !== row.current)) {
+  // Saves the selected change's draft (values, comment, sign-off). `reviewed` overrides the draft's sign-off.
+  // Returns false when something blocks the save, so callers don't move on.
+  const saveComment = (reviewedOverride?: boolean) => {
+    if (!record || !commentEdit) return false;
+    const draft = { ...commentEdit, reviewed: reviewedOverride ?? commentEdit.reviewed };
+    const value = draft.value.trim(), prior = draft.prior.trim(), current = draft.current.trim();
+    if (!value) { toast('A comment cannot be empty.', 'error'); return false; }
+    const row = record.provisions.find(p => p.id === draft.id);
+    if (!row) return false;
+    let saved = record;
+    if (value !== row.comment || prior !== row.prior || current !== row.current)
       // An empty plan value means the provision isn't in that document.
-      const saved = Core.commitEdits(record, [{ ...row, comment: value, prior: prior || 'Not found', current: current || 'Not found' }]);
-      setRecords(rs => rs.map(r => r.id === saved.id ? saved : r));
-      toast('Changes saved.');
-    }
-    setCommentEdit(null);
+      saved = Core.commitEdits(saved, [{ ...row, comment: value, prior: prior || 'Not found', current: current || 'Not found' }]);
+    const after = saved.provisions.find(p => p.id === row.id)!;
+    if (draft.reviewed && after.status === 'missing' && !draft.resolution) { toast('Choose a resolution for this missing provision first.', 'error'); return false; }
+    if (draft.reviewed !== !!row.reviewedAt || draft.resolution !== (row.resolution ?? ''))
+      saved = Core.setReview(saved, row.id, draft.reviewed, after.status === 'missing' ? draft.resolution : '');
+    if (saved !== record) setRecords(rs => rs.map(r => r.id === saved.id ? saved : r));
+    const fresh = saved.provisions.find(p => p.id === row.id)!;
+    setCommentEdit({ id: fresh.id, prior: fresh.prior, current: fresh.current, value: fresh.comment, reviewed: !!fresh.reviewedAt, resolution: fresh.resolution ?? '' });
+    setEditing(false);
+    return true;
   };
 
-  // Selecting another change (list, Previous or Next) asks first if the comment has unsaved edits.
-  const goToComment = (id: string) => {
-    const row = record?.provisions.find(p => p.id === id);
-    if (!row) return;
-    const go = () => setCommentEdit({ id: row.id, prior: row.prior, current: row.current, value: row.comment });
-    if (!commentDirty) { go(); return; }
-    openModal({
-      title: 'Discard your changes?',
-      body: <p>Your edits to this comment haven't been saved. Discard them, or keep editing.</p>,
-      buttons: [{ label: 'Keep editing', run: closeModal }, { label: 'Discard', variant: 'primary', run: () => { closeModal(); go(); } }],
-    });
+  // Open one change for editing; another open edit with unsaved changes has to be saved or cancelled first.
+  const startEdit = (p: Provision) => {
+    if (commentDirty && commentEdit?.id !== p.id) { toast('Save or cancel the change you are editing first.', 'error'); return; }
+    setCommentEdit({ id: p.id, prior: p.prior, current: p.current, value: p.comment, reviewed: !!p.reviewedAt, resolution: p.resolution ?? '' });
+    setEditing(true);
   };
+  const cancelEdit = () => { setEditing(false); setCommentEdit(null); };
+
 
   /* ---------- submission ---------- */
   // Leaving without saving a draft or submitting discards this session's work, so confirm first.
@@ -192,6 +243,18 @@ export default function App() {
   const submitReview = () => {
     if (!record) return;
     if (commentDirty) { toast('Save or cancel the comment you are editing before submitting.', 'error'); return; }
+    // Every change needs a person's sign-off (and Missing rows a resolution) before the TOR is final.
+    const open = record.provisions.filter(p => p.status !== 'match' && Core.needsReview(p));
+    if (open.length) {
+      const total = record.provisions.filter(p => p.status !== 'match').length;
+      openModal({
+        title: 'Review all changes before you submit',
+        body: <p>{open.length} of {total} changes still need review. Tick each one as reviewed. Missing provisions also need a resolution.</p>,
+        buttons: [{ label: 'Show first to review', variant: 'primary', run: () => { closeModal(); const first = orderedRows(record, 'all').find(Core.needsReview); // After the modal hands focus back, move it to that row.
+          if (first) setTimeout(() => { const el = document.getElementById(`chg-${first.id}`); el?.scrollIntoView({ behavior: 'smooth', block: 'center' }); el?.focus({ preventScroll: true }); }, 60); } }, { label: 'Keep reviewing', run: closeModal }],
+      });
+      return;
+    }
     const id = record.id, name = record.planName;
     // No confirmation overlay: submit, return to the list, and confirm with a floating alert under its CTA.
     const now = new Date().toISOString();
@@ -201,20 +264,35 @@ export default function App() {
   };
 
   /* ---------- create ---------- */
+  const requestCompare = () => {
+    if (!Core.canStart(request) || comparing || uploading) return;
+    setComparing(true);
+    compareTimer.current = window.setTimeout(() => { setComparing(false); startComparison(); }, 1800);
+  };
+  const stopCompare = () => { clearTimeout(compareTimer.current); setComparing(false); toast('Comparison stopped. Your documents are still here.'); };
+
   const startComparison = () => {
     if (!Core.canStart(request)) { setUploadErrors(['Add at least one document for both the prior and current provider.']); return; }
     let next = Core.completeRequest(request, records, new Date().toISOString(), Core.nextId(records));
     // Negative scenario: a scanned document can't be read, so the analysis ends in an error.
     if ([...request.prior, ...request.current].some(d => /scan/i.test(d.name))) next = { ...next, status: 'cancelled', provisions: [] };
-    setRecords(rs => [next, ...rs]);
+    // A retry replaces the failed comparison instead of leaving both in the list.
+    const replaced = retryOf;
+    setRecords(rs => [next, ...rs.filter(r => r.id !== replaced)]); setRetryOf(null);
     setRequest(Core.newRequest()); setFilters(EMPTY_FILTERS); setDraftFilters(EMPTY_FILTERS); setVisibleCount(BATCH_SIZE);
-    setActiveId(next.id); setCommentEdit(null); setProvisionFilter('all'); setPage('review'); focusTop();
+    setActiveId(next.id); setCommentEdit(null); setPage('review'); focusTop();
+    if (next.status !== 'cancelled') toast('Comparison ready. Go through each change, then submit.');
   };
 
   const addFiles = (bucket: Bucket, files: File[], replace = false) => {
-    const result = Core.addDocuments(replace ? { ...request, [bucket]: [] } : request, bucket, files);
+    // The same file in both plans would compare a plan with itself, so it's caught before it's added.
+    const other: Bucket | null = bucket === 'prior' ? 'current' : bucket === 'current' ? 'prior' : null;
+    const clash = (f: File) => !!other && request[other].some(d => d.name === f.name && d.size === f.size);
+    const crossErrors = files.filter(clash).map(f => `${f.name}: this file is already uploaded as the ${other} plan. Upload the ${bucket} plan's own document.`);
+    const result = Core.addDocuments(replace ? { ...request, [bucket]: [] } : request, bucket, files.filter(f => !clash(f)));
     files.forEach(f => uploadedFiles.current.set(`${bucket}/${f.name}`, f));
-    setRequest(result.request); setUploadErrors(result.errors); setErrorBucket(bucket);
+    if (result.request[bucket].length > request[bucket].length) markUploading();
+    setRequest(result.request); setUploadErrors([...crossErrors, ...result.errors]); setErrorBucket(bucket);
   };
   // Keep the picked File objects so an uploaded document can be downloaded again before comparing.
   const uploadedFiles = useRef(new Map<string, File>());
@@ -228,7 +306,7 @@ export default function App() {
   const replaceFile = (bucket: Bucket, index: number, file: File) => {
     const without = { ...request, [bucket]: request[bucket].filter((_, i) => i !== index) };
     const result = Core.addDocuments(without, bucket, [file]);
-    if (!result.errors.length) uploadedFiles.current.set(`${bucket}/${file.name}`, file);
+    if (!result.errors.length) { uploadedFiles.current.set(`${bucket}/${file.name}`, file); markUploading(); }
     setRequest(result.request); setUploadErrors(result.errors); setErrorBucket(bucket);
   };
   const removeFile = (bucket: Bucket, index: number) => {
@@ -256,28 +334,14 @@ export default function App() {
   const showGuide = () => openModal({ title: 'About AI Plan Comparison', wide: true, body: <Guide /> });
 
   /* ---------- views ---------- */
-  // Plan comparisons list: plain table, plan name first, status as tabs people can scan.
+  // Plan comparisons: search, then one row per comparison; the whole row opens it.
   function ListView() {
     const q = filters.plan.trim().toLowerCase();
     const all = Core.filterRecords(records, EMPTY_FILTERS);
-    const matches = all.filter(r => !q || `${r.planName} ${failedName(r)} ${r.priorProvider} ${r.currentProvider} ${r.planId} ${r.id}`.toLowerCase().includes(q));
     const tabs: [string, string][] = [['', 'All'], ['review', 'Draft'], ['submitted', 'Submitted'], ['failed', 'Cancelled']];
-    const found = matches.filter(r => !filters.status || recordStatus(r) === filters.status);
-    const sortVal = (r: PlanRecord): string | number => !sort ? 0 : sort.key === 'plan' ? (recordStatus(r) === 'failed' ? failedName(r) : r.planName)
-      : sort.key === 'status' ? recordStatus(r) : sort.key === 'prior' ? r.priorProvider : sort.key === 'current' ? r.currentProvider : r.provisions.filter(p => p.status !== 'match').length;
-    const sorted = !sort ? found : [...found].sort((a, b) => { const x = sortVal(a), y = sortVal(b); return (typeof x === 'number' ? x - (y as number) : x.localeCompare(y as string)) * sort.dir; });
-    const sortTh = (key: NonNullable<typeof sort>['key'], label: string, cls = '') => {
-      const on = sort?.key === key;
-      return <th className={cls} aria-sort={on ? (sort!.dir === 1 ? 'ascending' : 'descending') : 'none'}>
-        <button type="button" className={`th-sort ${on ? 'on' : ''}`} onClick={() => setSort(on ? { key, dir: sort!.dir === 1 ? -1 : 1 } : { key, dir: 1 })}>
-          {label}<Icon name={on ? (sort!.dir === 1 ? 'sortUp' : 'sortDown') : 'sort'} /></button></th>;
-    };
-    const shown = sorted.slice(0, visibleCount), hasMore = shown.length < found.length;
-    // Lazy load: the table scrolls inside its card and fetches the next batch near the bottom.
-    const onTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
-      const el = e.currentTarget;
-      if (hasMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) setVisibleCount(c => c + BATCH_SIZE);
-    };
+    const found = all.filter(r => (!q || `${r.planName} ${failedName(r)} ${r.priorProvider} ${r.currentProvider}`.toLowerCase().includes(q))
+      && (!filters.status || recordStatus(r) === filters.status));
+    const shown = found.slice(0, visibleCount), hasMore = shown.length < found.length;
     return <>
       <div className="page-title-row page-title-row--rule">
         <div className="page-header"><h1 className="page-title">Plan comparisons</h1></div>
@@ -294,34 +358,31 @@ export default function App() {
           <Button type="submit" variant="secondary" size="regular">Search</Button>
         </div>
       </form>
-      <div className="record-count"><strong>{found.length}/{all.length}</strong> Record(s)</div>
+      <span className="record-count sl-count"><strong>{found.length}/{all.length}</strong> Record(s)</span>
       {!shown.length ? (
         <div className="no-records"><img src={noRecordsImg} alt="" width={240} height={240} /><h2>No comparisons found</h2>
           <p>{q ? 'Try another plan or provider name.' : <>Start with a <button type="button" className="text-link" onClick={() => openCreate()}>new comparison</button>.</>}</p></div>
-      ) : (<>
-        <Card className="table-card"><div className="table-scroll table-scroll--lazy" onScroll={onTableScroll}>
-          <table className="ds-table plan-list">
-            <caption className="sr-only">Plan comparisons</caption>
-            <colgroup><col className="pl-plan" /><col className="pl-prov" /><col className="pl-prov" /><col className="pl-changes" /><col className="pl-status" /></colgroup>
-            <thead><tr>{sortTh('plan', 'Plan')}{sortTh('prior', 'Prior provider')}{sortTh('current', 'Current provider')}{sortTh('changes', 'Differences', 'num')}{sortTh('status', 'Status')}</tr></thead>
-            <tbody>{shown.map(r => {
-              const st = recordStatus(r), diff = r.provisions.filter(p => p.status === 'difference').length, miss = r.provisions.filter(p => p.status === 'missing').length;
-              const name = st === 'failed' ? failedName(r) : r.planName;
-              return <tr key={r.id} className="row-link" tabIndex={0} aria-label={`Open ${st === 'failed' ? failedName(r) : r.planName}`}
-                onClick={() => openReview(r.id)} onKeyDown={e => { if (e.key === 'Enter') openReview(r.id); }}>
-                <td><div className="pl-plan-cell"><span className="pl-plan-text"><span className="pl-name truncate" title={name}>{name}</span>
-                  {st === 'failed' && <span className="pl-sub truncate">Documents couldn't be read</span>}</span></div></td>
-                <td>{st === 'failed' ? <span className="small-muted">—</span> : <span className="prov-name truncate" title={r.priorProvider}>{r.priorProvider}</span>}</td>
-                <td>{st === 'failed' ? <span className="small-muted">—</span> : <span className="prov-name prov-name--current truncate" title={r.currentProvider}>{r.currentProvider}</span>}</td>
-                <td className="num">{st === 'failed' ? <span className="small-muted">—</span> : <span className="pl-count">{diff + miss}</span>}</td>
-                <td>{st === 'failed' ? <Badge tone="critical">Cancelled</Badge> : st === 'submitted' ? <Badge tone="success">Submitted</Badge> : <Badge tone="neutral">Draft</Badge>}</td>
-              </tr>;
-            })}
-              {hasMore && <tr className="lazy-row"><td colSpan={5}><Icon name="spinner" className="spinner" /> Loading more comparisons…</td></tr>}
-            </tbody>
-          </table>
-        </div></Card>
-      </>)}
+      ) : (
+        <div className="sl-table">
+        <div className="sl-head" aria-hidden="true"><span>Plan</span><span>Review progress</span><span>Last updated</span><span>Status</span></div>
+        <ul className="sl-list" aria-label="Plan comparisons">
+          {shown.map(r => {
+            const st = recordStatus(r), name = st === 'failed' ? failedName(r) : r.planName, pg = reviewProgress(r);
+            return <li key={r.id} className="sl-row">
+              <button type="button" className="cl-open" aria-label={`Open ${name}`} onClick={() => openReview(r.id)} />
+              <div className="sl-main">
+                <span className="sl-name truncate" title={name}>{name}</span>
+                <span className="sl-sub truncate">{st === 'failed' ? 'A document couldn\'t be read' : `${r.priorProvider} → ${r.currentProvider}`}</span>
+              </div>
+              <span className="sl-note">{st === 'review' ? `${pg.done} of ${pg.total} reviewed` : ''}</span>
+              <span className="sl-date">{Core.dateLabel(r.modifiedAt)}</span>
+              <span>{st === 'failed' ? <Badge tone="critical">Cancelled</Badge> : st === 'submitted' ? <Badge tone="success">Submitted</Badge> : <Badge tone="neutral">Draft</Badge>}</span>
+            </li>;
+          })}
+        </ul>
+        </div>
+      )}
+      {hasMore && <div className="sl-more"><Button variant="secondary" size="regular" onClick={() => setVisibleCount(c => c + BATCH_SIZE)}>Show more ({found.length - shown.length})</Button></div>}
     </>;
   }
 
@@ -329,15 +390,20 @@ export default function App() {
   function CreateView() {
     const compared = record;
     const docs = compared ? [['Prior plan', compared.documents.prior], ['Current plan', compared.documents.current]] as const : null;
+    const ready = Core.canStart(request) && !uploading;
+    const missing = !request.prior.length && !request.current.length ? 'both plans' : !request.prior.length ? 'the prior plan' : 'the current plan';
+    const hasDocs = !!(request.prior.length || request.current.length || request.template.length);
     return <>
       <div className="page-back-bar"><button type="button" className="back-link page-back" onClick={() => navigate('dashboard')}><Icon name="arrowLeft" /><span>Back</span></button></div>
       <div className="page-title-row">
         <div className="page-header"><h1 className="page-title">New comparison</h1></div>
         {compared
           ? <Button variant="secondary" size="regular" onClick={() => openCreate()}>Start another</Button>
-          : <div className="actions"><Button variant="secondary" size="regular" onClick={() => (request.prior.length || request.current.length || request.template.length) ? confirmCancel('the documents you uploaded') : navigate('dashboard')}>Cancel</Button>
-              <Button variant="primary" size="regular" disabled={!Core.canStart(request)} onClick={startComparison}
-              title={Core.canStart(request) ? undefined : 'Add both plan documents first'}>Compare plans</Button></div>}
+          : <div className="actions">
+              {!ready && <span className="ready-hint" aria-live="polite">{uploading ? 'Uploading…' : `Add ${missing} to compare`}</span>}
+              <Button variant="secondary" size="regular" onClick={() => comparing ? stopCompare() : hasDocs ? confirmCancel('the documents you uploaded') : navigate('dashboard')}>Cancel</Button>
+              <Button variant="primary" size="regular" disabled={!ready || comparing} aria-busy={comparing} onClick={requestCompare}>
+                {comparing ? <><Icon name="spinner" className="spinner" /> Comparing…</> : 'Compare plans'}</Button></div>}
       </div>
       {docs ? (
         <div className="up-summary">{docs.map(([label, list]) => (
@@ -346,11 +412,23 @@ export default function App() {
             <div className="up-summary-files">{list.map(d => d.name).join(', ')}</div></div></div>))}
         </div>
       ) : (
-        // One card, kit horizontal Drag & Drop Upload rows (Figma 1027:8472): label on the left, drop zone on the right.
-        <div className="up-panel">
-          {uploadStep('prior', '1', 'Prior plan', 'The plan as it was with the previous provider')}
-          {uploadStep('current', '2', 'Current plan', 'The plan with the new provider')}
-          {uploadStep('template', '3', 'TOR template (Optional)', 'Use your own format for the downloaded TOR', false)}
+        <div className={`up-flow2 ${comparing ? 'is-busy' : ''}`} aria-busy={comparing}>
+          {retryOf && !comparing && (() => { const f = records.find(r => r.id === retryOf); return f && <div className="retry-note" role="status"><Icon name="info" solid />
+            <p><strong>Retrying {failedName(f)}.</strong> The documents that were read are kept. {unreadableDocs(f).join(', ')} couldn't be read and was removed. Add a text-based copy of it, then compare again.</p></div>; })()}
+          {comparing && <div className="cmp-progress" role="status"><Icon name="spinner" className="spinner" />
+            <div><strong>Comparing the two plans</strong><span>Reading {request.prior.length + request.current.length} documents and matching each provision. This takes a few seconds.</span></div></div>}
+          {/* Prior and current side by side, in the same order as the review table's columns. */}
+          <div className="up-pair">
+            {uploadStep('prior', '1', 'Prior plan', 'The plan as it was with the previous provider')}
+            <span className="up-pair-arrow" aria-hidden="true"><Icon name="arrowRight" /></span>
+            {uploadStep('current', '2', 'Current plan', 'The plan with the new provider')}
+          </div>
+          {templateOpen || request.template.length
+            ? <div className="up-template">
+                {uploadStep('template', '3', 'TOR template (Optional)', 'Use your own format for the downloaded TOR', false)}
+                {!request.template.length && <button type="button" className="up-row-link up-template-hide" onClick={() => setTemplateOpen(false)}>Use the standard TOR instead</button>}
+              </div>
+            : <button type="button" className="up-row-link up-template-add" onClick={() => setTemplateOpen(true)}><Icon name="plus" />Add your own TOR template (optional)</button>}
         </div>
       )}
     </>;
@@ -371,28 +449,23 @@ export default function App() {
   }
 
   function FailedView() {
-    const f = record!;
-    const docs = [...f.documents.prior.map(d => ['Prior plan', d.name]), ...f.documents.current.map(d => ['Current plan', d.name])];
+    const f = record!, bad = unreadableDocs(f);
     return <>
       <div className="page-heading">
-        <div className="page-header"><h1 className="page-title">Comparison failed</h1></div>
+        <div className="page-header"><h1 className="page-title">{failedName(f)}</h1></div>
         <div className="actions">
           <Button variant="secondary" size="regular" onClick={() => confirmRemove(f.id)}>Delete</Button>
-          <Button variant="primary" size="regular" onClick={() => openCreate()}>Try again</Button>
+          <Button variant="primary" size="regular" onClick={() => retryFailed(f)}>Replace file and retry</Button>
         </div>
       </div>
-      <section className="cmp-strip" aria-label="Plans compared">
-        <div className="cmp-cell cmp-cell--plan"><span className="cmp-k">Plan</span><span className="cmp-v">{failedName(f)}</span></div>
-        <div className="cmp-cell"><span className="cmp-k">Prior provider</span><span className="cmp-v cmp-v--muted">Not read</span></div>
-        <div className="cmp-cell cmp-cell--current"><span className="cmp-k">Current provider</span><span className="cmp-v cmp-v--muted">Not read</span></div>
-        <div className="cmp-cell cmp-cell--status"><span className="cmp-k">Status</span><span><Badge tone="critical">Cancelled</Badge></span></div>
-      </section>
-      <div className="failed-reason" role="alert"><Icon name="info" solid /><div>
-        <strong>The current plan document couldn't be read.</strong>
-        <p>It's a scanned image, so its text couldn't be extracted. Upload a text-based PDF or Word file and try again.</p>
-      </div></div>
-      {docs.length > 0 && <Card className="failed-files-card"><div className="ds-label">Uploaded files</div>
-        <ul className="failed-files">{docs.map(([k, n], j) => <li key={j}><span className="small-muted">{k}</span><span>{n}</span></li>)}</ul></Card>}
+      <div className="sr-card fc-card" role="alert">
+        <span className="fc-icon" aria-hidden="true"><Icon name="alertCircle" solid /></span>
+        <div>
+          <h2 className="sr-title">This comparison couldn't run</h2>
+          <p className="fc-lead"><strong>{bad.join(', ')}</strong> is a scanned image, so its text couldn't be read.
+            Replace it with a text-based PDF or Word file. Your other files are kept.</p>
+        </div>
+      </div>
     </>;
   }
 
@@ -410,78 +483,78 @@ export default function App() {
       files={files.map(f => ({ name: f.name, size: Core.fileSize(f.size) }))} />;
   }
 
+  // Review changes: every change in one list. Before, after and what it means, ticked off as reviewed.
   function ReviewView() {
     if (!record) return null;
     const r = record, locked = !!r.submittedAt;
-    const rows = r.provisions.filter(p => p.status !== 'match');
-    const filtered = rows.filter(p => provisionFilter === 'all' || (provisionFilter === 'impact' ? isBenefitImpact(p.name) : p.status === provisionFilter));
-    // Summary tiles double as filters: what changed, what is missing, what you've already edited.
-    const tiles: [string, string, number, string][] = [
-      ['all', 'All', rows.length, 'brand'],
-      ['difference', 'Difference', rows.filter(p => p.status === 'difference').length, 'warning'],
-      ['missing', 'Missing', rows.filter(p => p.status === 'missing').length, 'critical'],
-      ['impact', 'Benefit impacts', rows.filter(p => isBenefitImpact(p.name)).length, 'brand'],
-    ];
+    const list = orderedRows(r, 'all');
+    const reviewed = list.filter(p => !Core.needsReview(p)).length;
     const isMissing = (v: string) => !v || v === 'Not found';
+    // Sign-off straight from the list; a missing provision needs a resolution before it can be ticked.
+    const sign = (p: Provision, done: boolean, resolution = p.resolution ?? '') => {
+      if (done && p.status === 'missing' && !resolution) { toast('Choose a resolution for this missing provision first.', 'error'); return; }
+      setRecords(rs => rs.map(x => x.id === r.id ? Core.setReview(x, p.id, done, p.status === 'missing' ? resolution : '') : x));
+    };
     return <>
       <div className="page-heading">
-        <div className="page-header">
-          <h1 className="page-title">Review changes</h1>
-        </div>
+        <div className="page-header"><h1 className="page-title">{r.planName}</h1>
+          <p className="sr-route">{r.priorProvider} → {r.currentProvider} · {locked ? `Submitted ${Core.dateLabel(r.submittedAt!)}` : `${reviewed} of ${list.length} reviewed`}</p></div>
         <div className="actions">
           {locked
-            ? <Button variant="secondary" size="regular" onClick={() => confirmRemove(r.id)}>Delete</Button>
-            : <><Button variant="tertiary" size="regular" onClick={saveDraft}>Save as draft</Button>
-              <Button variant="secondary" size="regular" onClick={() => confirmCancel('changes you made to this review')}>Cancel</Button></>}
-          {locked
-            ? <Button variant="primary" size="regular" icon="download" onClick={() => downloadTor(r.id)}>Download TOR</Button>
-            : <Button variant="primary" size="regular" onClick={submitReview}>Submit</Button>}
+            ? <><Button variant="secondary" size="regular" onClick={() => confirmRemove(r.id)}>Delete</Button>
+                <Button variant="primary" size="regular" icon="download" onClick={() => downloadTor(r.id)}>Download TOR</Button></>
+            : <><Button variant="secondary" size="regular" onClick={saveDraft}>Save as draft</Button>
+                <Button variant="primary" size="regular" onClick={submitReview}>Submit</Button></>}
         </div>
       </div>
-      {/* Which plans are being compared — its own block, separate from the table */}
-      <section className="cmp-strip" aria-label="Plans compared">
-        <div className="cmp-cell cmp-cell--plan"><span className="cmp-k">Plan</span><span className="cmp-v">{r.planName}</span></div>
-        <div className="cmp-cell"><span className="cmp-k">Prior provider</span><span className="cmp-v">{r.priorProvider}</span></div>
-        <div className="cmp-cell cmp-cell--current"><span className="cmp-k">Current provider</span><span className="cmp-v">{r.currentProvider}</span></div>
-        <div className="cmp-cell cmp-cell--status"><span className="cmp-k">Status</span><span>{locked ? <Badge tone="success">Submitted</Badge> : <Badge tone="neutral">Draft</Badge>}</span></div>
-      </section>
-      <div className="rv-toolbar">
-        <div className="rv-chips" role="tablist" aria-label="Filter changes">
-          {tiles.map(([v, label, count]) => (
-            <button key={v} type="button" role="tab" aria-selected={provisionFilter === v} className={`rv-chip ${provisionFilter === v ? 'active' : ''}`} onClick={() => setProvisionFilter(v)}>
-              {provisionFilter === v && <Icon name="check" />}{label}<span className="rv-num">{count}</span>
-            </button>))}
-        </div>
-      </div>
-      <div className="rv-card rv-card--stack">
-        <div className="rv-main">
-          <table className="ds-table review-table review-split-table">
-            <caption className="sr-only">Changes between the prior and current plan</caption>
-            <colgroup><col className="c-prov" /><col className="c-val" /><col className="c-val" /><col className="c-com" /><col className="c-act" /></colgroup>
-            <thead><tr><th>Provision</th><th>Prior plan</th><th>Current plan</th><th>AI comment</th><th className="th-action">Action</th></tr></thead>
-            <tbody>
-              {!filtered.length && <tr className="empty-row"><td colSpan={5}><Icon name="checkCircle" solid />{
-                provisionFilter === 'missing' ? 'No missing provisions. Every prior provision was found in the current plan.'
-                : provisionFilter === 'impact' ? 'No changes affect what participants receive.'
-                : provisionFilter === 'difference' ? 'No provision values differ between the two plans.'
-                : 'No changes found between the two plans.'}</td></tr>}
-              {filtered.map(p => (
-                // Drafts open the slide-out from the Action edit icon only; submitted rows open read-only on row click.
-                <tr key={p.id} {...(locked ? { className: 'row-link', tabIndex: 0, 'aria-label': `View ${p.name}`,
-                  onClick: () => goToComment(p.id), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') goToComment(p.id); } } : {})}>
-                  <td><span className="provision-name">{p.name}</span></td>
-                  <td><span className={isMissing(p.prior) ? 'missing-value' : 'chg-was'}>{isMissing(p.prior) ? 'Not found' : p.prior}</span></td>
-                  <td><span className={isMissing(p.current) ? 'missing-value' : 'chg-now'}>{isMissing(p.current) ? 'Not found' : p.current}</span></td>
-                  <td><div className="com-preview com-preview--2"><span className="clamp2" title={p.comment}>{p.comment}</span></div></td>
-                  <td className="td-action">{!locked && <IconButton icon="edit" title="Edit" label={`Edit ${p.name}`}
-                    onClick={e => { e.stopPropagation(); goToComment(p.id); }} />}</td>
-                </tr>))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+
+      {!list.length ? <div className="rl-empty"><Icon name="checkCircle" solid /><p>No changes found between the two plans.</p></div> : (
+      <div className="rl-table">
+        <div className="rl-head" aria-hidden="true"><span>Change</span><span>Before</span><span>After</span><span>Reviewed</span></div>
+        <ul className="rl-list" aria-label="Changes">
+          {list.map(p => {
+            const open = editing && commentEdit?.id === p.id, d = open ? commentEdit! : null, missing = p.status === 'missing', done = !Core.needsReview(p);
+            const value = (k: 'prior' | 'current') => {
+              const v = d ? d[k] : p[k], other = k === 'prior' ? p.current : p.prior;
+              if (d) return <TextArea id={`${k}-${p.id}`} aria-label={`${p.name}: ${k === 'prior' ? 'before' : 'after'}`} className="comment-textarea comment-textarea--hug" rows={2} maxLength={1000}
+                placeholder="Not found" value={v === 'Not found' ? '' : v} onChange={e => setCommentEdit({ ...d, [k]: e.target.value })} />;
+              return isMissing(v) ? <span className="missing-value"><Icon name="alertCircle" solid />Not found</span> : isMissing(other) ? v : diffWords(v, other, k === 'prior' ? 'del' : 'ins');
+            };
+            return <li key={p.id} id={`chg-${p.id}`} tabIndex={-1} className={`rl-row ${done ? 'is-done' : ''} ${open ? 'is-editing' : ''}`}>
+              <div className="rl-name">{p.name}{missing && <span className="rv-tag rv-tag--missing">Missing</span>}</div>
+              <div className="rl-v">{value('prior')}</div>
+              <div className="rl-v rl-v--after">{value('current')}</div>
+              <div className="rl-check">
+                {locked
+                  ? <span className="rl-signed"><Icon name="checkCircle" solid /><span>{p.reviewedBy?.name ?? 'Reviewed'}</span></span>
+                  : <label className="rl-box"><input type="checkbox" checked={done} disabled={open} aria-label={`Mark ${p.name} reviewed`}
+                      onChange={e => sign(p, e.target.checked)} /><span aria-hidden="true">{done && <Icon name="check" />}</span></label>}
+              </div>
+              <div className="rl-why">
+                {d
+                  ? <TextArea id={`comment-${p.id}`} aria-label={`${p.name}: what this means`} className="comment-textarea comment-textarea--hug" rows={Math.max(2, Math.ceil(d.value.length / 110) + 1)} maxLength={2000}
+                      value={d.value} onChange={e => setCommentEdit({ ...d, value: e.target.value })} />
+                  : <p>{p.comment}</p>}
+                {missing && (locked
+                  ? <p className="rl-res"><strong>Resolution:</strong> {p.resolution ?? 'Not recorded'}</p>
+                  : <label className="rl-res"><span>Resolution</span>
+                      <span className="ds-select-wrap"><select className="ds-input ds-select" value={p.resolution ?? ''} onChange={e => sign(p, done && !!e.target.value, e.target.value)}>
+                        <option value="">Choose one</option>{Core.RESOLUTIONS.map(v => <option key={v} value={v}>{v}</option>)}</select><Icon name="chevronDown" solid /></span></label>)}
+                {!locked && <div className="rl-acts">{open
+                  ? <><Button variant="secondary" size="small" onClick={cancelEdit}>Cancel</Button>
+                      <Button variant="primary" size="small" onClick={() => { if (saveComment()) setCommentEdit(null); }}>Save</Button></>
+                  : <button type="button" className="rw-link rl-edit" onClick={() => startEdit(p)}><Icon name="edit" />Edit</button>}</div>}
+              </div>
+            </li>;
+          })}
+        </ul>
+      </div>)}
     </>;
   }
+
+
+
+
 
   const views = { dashboard: ListView, review: DetailView, create: CreateView };
   // Called as functions (not <View/>) so inputs keep focus across re-renders.
@@ -515,42 +588,6 @@ export default function App() {
     <div className="shell">
       <main id="main" className="main main--flow" tabIndex={-1} ref={mainRef}><div className="flow-content">{content}</div></main>
     </div>
-    {page === 'review' && record && commentEdit && (() => {
-      const row = record.provisions.find(p => p.id === commentEdit.id);
-      if (!row) return null;
-      const locked = !!record.submittedAt;
-      const close = () => {
-        if (!commentDirty) { setCommentEdit(null); return; }
-        openModal({ title: 'Discard your changes?', body: <p>Your edits to this provision haven't been saved.</p>,
-          buttons: [{ label: 'Discard', variant: 'primary', run: () => { closeModal(); setCommentEdit(null); } }, { label: 'Keep editing', run: closeModal }] });
-      };
-      return (
-        <Drawer title={row.name} onClose={close} blocked={!!modal}
-          footer={locked ? <Button variant="secondary" size="regular" onClick={close}>Close</Button> : <>
-            <Button variant="secondary" size="regular" onClick={close}>Cancel</Button>
-            <Button variant="primary" size="regular" disabled={!commentDirty} onClick={saveComment}>Save</Button></>}>
-          {/* Context card: plan, then each provider with this provision's value underneath */}
-          <div className="sum-card">
-            <div className="sum-cell sum-cell--plan"><span className="sum-k">Plan name</span><span className="sum-v">{record.planName}</span></div>
-            <div className="sum-cell"><span className="sum-k">Prior provider</span><span className="sum-v">{record.priorProvider}</span></div>
-            <div className="sum-cell"><span className="sum-k">Current provider</span><span className="sum-v">{record.currentProvider}</span></div>
-          </div>
-          {(['prior', 'current'] as const).map(k => (
-            <div key={k} className="ds-field">
-              <label htmlFor={`${k}-input`} className="ds-label">{k === 'prior' ? 'Prior plan' : 'Current plan'}</label>
-              <TextArea id={`${k}-input`} className="comment-textarea comment-textarea--hug" rows={2} maxLength={1000} readOnly={locked}
-                placeholder="Not found" value={commentEdit[k] === 'Not found' ? '' : commentEdit[k]}
-                onChange={e => setCommentEdit({ ...commentEdit, [k]: e.target.value })} />
-            </div>))}
-          <div className="ds-field">
-            <label htmlFor="comment-input" className="ds-label">AI comment</label>
-            <TextArea id="comment-input" className="comment-textarea comment-textarea--hug" rows={Math.max(3, Math.ceil(commentEdit.value.length / 95) + 1)} maxLength={2000} readOnly={locked}
-              value={commentEdit.value} onChange={e => setCommentEdit({ ...commentEdit, value: e.target.value })} />
-            {row.sopRule && <p className="cmp-sop"><Icon name="info" solid /> Based on {row.sopRule}</p>}
-          </div>
-        </Drawer>
-      );
-    })()}
     {modal?.kind === 'generic' && (
       <Modal title={modal.title} wide={modal.wide} onClose={closeModal}
         buttons={modal.buttons ?? [{ label: 'Got it', variant: 'primary', run: closeModal }]}>{modal.body}</Modal>
@@ -564,11 +601,13 @@ function Guide() {
   return <>
     <p>Reading two plan documents side by side to find what changed is slow and error-prone. AI Plan Comparison does that work: upload the prior and current provider documents, and it lists only the provisions that changed.</p>
     <div className="guide-section"><h3>How it works</h3><ol className="guide-list">
-      <li>Select <strong>New comparison</strong> and upload the prior and current provider documents. An existing TOR format is optional.</li>
-      <li>Select <strong>Compare plans</strong>. The review shows only changed provisions: <strong>Differences</strong> (both plans have it, values differ), and <strong>Missing</strong> (only one plan has it).</li>
-      <li>Each change has an AI comment explaining it. Use the edit icon to adjust a comment; provider values come from the documents and can't be edited.</li>
-      <li>Select <strong>Submit</strong> to finalize. The TOR document can then be downloaded from the review or the dashboard.</li>
+      <li>Select <strong>New comparison</strong> and upload the prior and current plan documents. Your own TOR template is optional.</li>
+      <li>Select <strong>Compare plans</strong>. The AI reads both plans and lists only the provisions that changed, grouped by plan section: <strong>Difference</strong> (both plans have it, values differ) and <strong>Missing</strong> (only one plan has it).</li>
+      <li>Work through each change. Compare before and after, edit a value or the note if it's wrong, and select <strong>Mark reviewed</strong>.</li>
+      <li>A missing provision isn't treated as removed. Record a resolution for it (requested from the provider, found elsewhere, or confirmed not offered) before marking it reviewed.</li>
+      <li>When every change is reviewed, select <strong>Submit</strong>. The TOR records each value, comment, resolution and reviewer, and can be downloaded from the review or the list.</li>
     </ol></div>
+    <div className="guide-section"><h3>If a comparison fails</h3><p>Usually a document is a scanned image. Open it and select <strong>Replace file and retry</strong>: the documents that were read are kept, so you only replace the one that failed.</p></div>
     <div className="guide-section"><h3>What is simulated</h3><p>Document analysis is simulated: every comparison uses the same illustrative provisions. Changes are saved in this browser only.</p></div>
   </>;
 }
