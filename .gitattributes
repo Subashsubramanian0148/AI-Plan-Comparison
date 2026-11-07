@@ -1,0 +1,4 @@
+# Keep GitHub's language stats on the TypeScript source:
+# share/ is a bundled single-file build, review-shots/ holds review notes.
+share/** linguist-generated=true
+review-shots/** linguist-documentation=true
