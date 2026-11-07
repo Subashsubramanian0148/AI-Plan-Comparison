@@ -2,3 +2,5 @@
 # share/ is a bundled single-file build, review-shots/ holds review notes.
 share/** linguist-generated=true
 review-shots/** linguist-documentation=true
+# The stylesheet outweighs the app code; leave it out so the repo reads as TypeScript.
+*.css linguist-detectable=false
