@@ -2649,3 +2649,13 @@ button.dt-sop:hover { color: var(--brand-strong); }
 .up-pair .up-step-head { padding-bottom: 0 !important; }
 .up-pair .up-row-right { padding-top: 16px !important; }
 @media (max-width: 760px) { .up-pair { grid-template-columns: 1fr !important; row-gap: 8px; } .up-pair .up-pair-arrow { transform: rotate(90deg); } }
+
+/* Upload: full width, and long file names truncate instead of overflowing the card */
+.up-flow2 { max-width: none !important; }
+.up-pair .up-step, .up-pair .up-row, .up-pair .up-row-right, .up-pair .up-row-files, .up-pair .up-row-files > li, .up-pair .up-card, .up-pair .up-row-file-main { min-width: 0; }
+.up-pair .up-card-top .up-card-text, .up-pair .up-row-file-name .up-card-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-pair .up-row-file-name { min-width: 0; }
+.up-pair .up-row-file-name .up-badge { flex: none; }
+.up-pair .up-acts, .up-pair .up-card-top .up-act { flex: none; }
+.up-pair .up-card { grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+.up-pair .up-row-file-main { flex: 1; }
