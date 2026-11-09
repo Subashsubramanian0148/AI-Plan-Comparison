@@ -153,7 +153,7 @@ export function FileUploader({ title, optional, disabled, accept, multiple, onFi
 
 // Kit Drag & Drop Upload row (Figma 1027:847x): label left, drop zone or uploaded files right, success/error footer.
 export type RejectedFile = { name: string; reason: string; label: string };
-export function UploadStep({ title, hint, accept, multiple = true, onFiles, files, rejected = [], onRemove, onReplace, onDownload, onDismiss }: {
+export function UploadStep({ title, accept, multiple = true, onFiles, files, rejected = [], onRemove, onReplace, onDownload, onDismiss }: {
   step?: string; title: string; hint: string; accept: string; multiple?: boolean;
   onFiles: (files: File[]) => void; files: { name: string; size: string }[]; rejected?: RejectedFile[];
   onRemove: (i: number) => void; onReplace: (i: number, file: File) => void; onDownload: (i: number) => void; onDismiss: () => void;
@@ -182,7 +182,7 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
       onClick={() => input.current?.click()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.current?.click(); } }}
       onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(false); }}
       onDrop={e => { e.preventDefault(); setOver(false); onFiles(Array.from(e.dataTransfer?.files || [])); }}>
-      <span className="up-zone-ico"><Icon name="upload" /></span><span className="up-zone-t">Drop your file here or <u>browse</u></span><span className="up-zone-s">PDF or DOCX · max 50 MB</span>
+      <span className="up-zone-line"><Icon name="upload" />Drag &amp; Drop here</span><span>or</span><span className="up-zone-browse">Browse File</span>
     </div>);
   // Kit Drag & Drop Upload rows: Default (1027:8472) → Success (1027:8471) / Error (1027:8470).
   return (
@@ -190,24 +190,25 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
       <div className="up-row">
         <header className="up-step-head">
           <h3 className="up-step-title">{title}</h3>
-          {hint && <p className="up-step-hint">{hint}</p>}
-          <p className="up-step-meta"><span>Accepted file : PDF, DOCX</span><span>Max File Size : 50 MB</span></p>
+                    <p className="up-step-meta"><span>Accepted file : PDF, DOCX</span><span>Max File Size : 50 MB</span></p>
         </header>
         <div className="up-row-right">
-          {!files.length ? zone : <ul className="up-row-files" aria-live="polite">
+          {!files.length || status === 'error' ? zone : <ul className="up-row-files" aria-live="polite">
             {files.map((f, i) => {
-              const pct = progress[f.name];
-              return <li key={f.name + i} className="up-row-file">
-                <span className="up-ext" aria-hidden="true">{(f.name.split('.').pop() || '').slice(0, 4).toUpperCase()}</span>
+              const pct = progress[f.name], busy = pct !== undefined && pct < 100;
+              // Kit uploader-status-card (13194:3782): in progress, then uploaded.
+              return busy ? <li key={f.name + i} className="up-card up-card--busy">
+                <div className="up-card-top"><Icon name="spinner" className="up-spin" /><span className="up-card-text" title={f.name}>{f.name}</span>
+                  <button type="button" className="up-act" aria-label={`Cancel upload of ${f.name}`} title="Cancel" onClick={() => onRemove(i)}><Icon name="close" /></button></div>
+                <div className="up-card-prog"><span>Uploading</span><span>{pct}%</span></div>
+                <div className="up-track"><span style={{ width: `${pct}%` }} /></div>
+              </li> : <li key={f.name + i} className="up-row-file">
                 <div className="up-row-file-main">
-                  <div className="up-row-file-name"><span className="up-card-text" title={f.name}>{f.name}</span>
-                    {pct !== undefined && pct < 100 ? <span className="up-row-pct">{pct}%</span> : <span className="up-badge up-badge--count">{f.size}</span>}</div>
-                  {pct !== undefined && pct < 100
-                    ? <div className="up-track"><span style={{ width: `${pct}%` }} /></div>
-                    : <button type="button" className="up-row-link" onClick={() => { replaceIndex.current = i; replaceInput.current?.click(); }}>Reupload</button>}
+                  <div className="up-row-file-name"><span className="up-card-text" title={f.name}>{f.name}</span><span className="up-badge up-badge--count">{f.size.split(" · ")[0]}</span></div>
+                  <button type="button" className="up-row-link" onClick={() => { replaceIndex.current = i; replaceInput.current?.click(); }}>Reupload</button>
                 </div>
                 <span className="up-acts">
-                  {(pct === undefined || pct >= 100) && <button type="button" className="up-act" aria-label={`Download ${f.name}`} title="Download" onClick={() => onDownload(i)}><Icon name="download" /></button>}
+                  <button type="button" className="up-act" aria-label={`Download ${f.name}`} title="Download" onClick={() => onDownload(i)}><Icon name="download" /></button>
                   <button type="button" className="up-act" aria-label={`Remove ${f.name}`} title="Remove" onClick={() => onRemove(i)}><Icon name="trash" /></button>
                 </span>
               </li>;

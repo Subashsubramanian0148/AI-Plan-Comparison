@@ -93,6 +93,7 @@ export default function App() {
   // Review
   // Table edit mode: each change's comment, keyed by change id.
   const [edit, setEdit] = useState<Record<string, string> | null>(null);
+  const [recView, setRecView] = useState<'table' | 'list'>('table');
   const [recTab, setRecTab] = useState<'all' | 'benefits' | 'disadvantages' | 'differences'>('all');
   const [submitOpen, setSubmitOpen] = useState(false);
   // Final review
@@ -249,6 +250,14 @@ export default function App() {
       } }],
     });
   };
+  const exportList = (rows: PlanRecord[]) => {
+    const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const csv = [['Plan', 'Prior plan', 'Current plan', 'Status'], ...rows.map(r => [r.status === 'cancelled' ? failedName(r) : r.planName, r.priorProvider, r.currentProvider, recordStatus(r)])]
+      .map(line => line.map(cell).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'plan-comparisons.csv'; a.click(); URL.revokeObjectURL(a.href);
+    toast('Export started.');
+  };
   const showGuide = () => setModal({ title: 'About AI Plan Comparison', wide: true, body: <Guide /> });
 
   /* ---------- shared bits ---------- */
@@ -268,10 +277,7 @@ export default function App() {
         <Button variant="primary" size="regular" onClick={openCreate}>New comparison</Button>
       </div>
       <div className="qa-cards">
-        <button type="button" className="qa-card" onClick={openCreate}>
-          <span className="qa-ico qa-ico--indigo"><Icon name="upload" /></span>
-          <span><strong>New comparison</strong><small>Upload two plan documents and compare them</small></span></button>
-        {([['review', 'Drafts', 'Comparisons you are still working on', 'edit', 'amber'], ['submitted', 'Submitted', 'Comparisons you have finished', 'checkCircle', 'green']] as const).map(([k, label, hint, ic, tone]) => (
+        {([['submitted', 'Submitted', 'Comparisons you have finished', 'checkCircle', 'green'], ['review', 'Drafts', 'Comparisons you are still working on', 'edit', 'amber']] as const).map(([k, label, hint, ic, tone]) => (
           <button key={k} type="button" className="qa-card" onClick={() => { setFilters(f => ({ ...f, status: k })); setDraftFilters(f => ({ ...f, status: k })); setVisibleCount(BATCH_SIZE); }}>
             <span className={`qa-ico qa-ico--${tone}`}><Icon name={ic} /></span>
             <span><strong>{label} <em>{all.filter(r => recordStatus(r) === k).length}</em></strong><small>{hint}</small></span></button>))}
@@ -285,7 +291,10 @@ export default function App() {
           <Button type="submit" variant="secondary" size="regular">Search</Button>
         </div>
       </form>
-      <span className="record-count sl-count"><strong>{found.length}/{all.length}</strong> Record(s)</span>
+      <div className="sl-count-row">
+        <span className="record-count sl-count"><strong>{found.length}/{all.length}</strong> Record(s)</span>
+        <Button variant="tertiary" size="regular" icon="download" disabled={!found.length} onClick={() => exportList(found)}>Export</Button>
+      </div>
       {!shown.length ? (
         <div className="no-records"><img src={noRecordsImg} alt="" width={240} height={240} /><h2>No comparisons found</h2>
           <p>{q || filters.status ? 'Try another plan name or status.' : <>Start with a <button type="button" className="text-link" onClick={openCreate}>new comparison</button>.</>}</p></div>
@@ -398,7 +407,7 @@ export default function App() {
     const r = record, locked = !!r.submittedAt, list = sorted(Core.changes(r));
     const unchanged = r.provisions.filter(p => p.change === 'unchanged'), all = [...list, ...unchanged], tab = recTab;
     const benefits = list.filter(p => p.effect === 'benefit'), disadvantages = list.filter(p => p.effect === 'disadvantage');
-    const startEdit = () => setEdit(Object.fromEntries(all.map(p => [p.id, p.summary])));
+    const startEdit = () => { setRecView('table'); setEdit(Object.fromEntries(all.map(p => [p.id, p.summary]))); };
     const dirtyEdit = !!edit && all.some(p => edit[p.id] !== undefined && edit[p.id] !== p.summary);
     const cancelEdit = () => dirtyEdit ? setModal({ title: 'Discard your changes?', body: <p>Your edits haven't been saved.</p>,
       buttons: [{ label: 'Keep editing', run: closeModal }, { label: 'Discard', variant: 'primary', run: () => { closeModal(); setEdit(null); } }] }) : setEdit(null);
@@ -410,7 +419,7 @@ export default function App() {
     };
     const changesTable = (rows: Provision[], empty: string) => rows.length ? (
       <div className={`dt ${edit ? 'dt--edit' : ''}`}>
-        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan <em className="ai-pill"><Icon name="sparkles" />AI</em></span><span>Comments</span><span>Impact</span></div>
+        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan</span><span>Comments</span><span>Impact</span></div>
         <ul className="dt-list" aria-label="Changes">
           {rows.map(p => <li key={p.id} className="dt-row">
             <div className="dt-name"><strong>{p.name}</strong>{p.change !== 'modified' && <span className={`dt-sub dt-sub--${p.change}`}>{CHANGE_LABEL[p.change]}</span>}</div>
@@ -426,6 +435,33 @@ export default function App() {
         </ul>
       </div>
     ) : <p className="ov-text">{empty}</p>;
+    // Key points of the new plan, side by side with what the prior plan offered; follows the tabs above.
+    const listView = () => {
+      const mixed = list.filter(p => p.effect === 'mixed');
+      const row = (p: Provision, tone: 'good' | 'bad' | 'mixed') => <li key={p.id} className="lv-row">
+        <div className="lv-cell lv-cell--prior"><strong>{p.name}</strong>{p.prior ? <span>{p.prior}</span> : <em>Not in the previous plan</em>}</div>
+        <div className={`lv-cell lv-cell--current lv-cell--${tone}`}>
+          <Icon name={tone === 'good' ? 'check' : 'alertCircle'} />
+          <div><strong>{p.name}</strong><span>{p.current || 'Not found in the current plan'}</span><small>{p.summary}</small></div>
+        </div>
+      </li>;
+      const sections = tab === 'benefits' ? [['Benefits', benefits, 'good']] : tab === 'disadvantages' ? [['Disadvantages', disadvantages, 'bad']]
+        : [['Benefits', benefits, 'good'], ['Disadvantages', disadvantages, 'bad'], ['Mixed', mixed, 'mixed']] as const;
+      const shownSections = (sections as readonly (readonly [string, Provision[], 'good' | 'bad' | 'mixed'])[]).filter(([, rows]) => rows.length);
+      return <div className="lv">
+        <div className="lv-badge">After the takeover</div>
+        <div className="lv-grid">
+          <div className="lv-head lv-head--prior"><h2>{r.priorYear} plan</h2><p>{r.priorProvider}</p><span>What participants have today</span></div>
+          <div className="lv-head lv-head--current"><h2>{r.currentYear} plan</h2><p>{r.currentProvider}</p><span>What participants get from the takeover</span></div>
+          <div className="lv-stat lv-stat--prior"><b>{r.provisions.length}</b><span>provisions compared</span></div>
+          <div className="lv-stat lv-stat--current"><b>{benefits.length}</b><span>{benefits.length === 1 ? 'key benefit' : 'key benefits'}</span><small>{disadvantages.length} worse · {mixed.length} mixed · {list.filter(p => p.effect === 'neutral').length} neutral</small></div>
+        </div>
+        {shownSections.length ? shownSections.map(([title, rows, tone]) => <section key={title}>
+          <h3 className="lv-title">{title}<span className="ds-count">{rows.length}</span></h3>
+          <ul className="lv-list">{rows.map(p => row(p, tone))}</ul>
+        </section>) : <p className="ov-text">{tab === 'benefits' ? 'No benefits found.' : tab === 'disadvantages' ? 'No disadvantages found.' : 'No key changes found.'}</p>}
+      </div>;
+    };
     return <>
       <div className="page-back-bar"><button type="button" className="back-link page-back" onClick={goList}><Icon name="arrowLeft" /><span>Back</span></button></div>
       <div className="page-heading rec-heading">
@@ -440,14 +476,17 @@ export default function App() {
               <Button variant="secondary" size="regular" disabled={!list.length} onClick={startEdit}>Edit</Button>
               <Button variant="primary" size="regular" onClick={() => setSubmitOpen(true)}>Submit</Button></>}</div>
       </div>
-      <p className="rec-summary">{list.length
-        ? <>{list.length} {list.length === 1 ? 'change' : 'changes'} from {r.priorYear} to {r.currentYear}. Overall the {r.currentYear} plan is {list.filter(p => p.effect === 'disadvantage').length > list.filter(p => p.effect === 'benefit').length ? 'less' : 'more'} generous for participants: {[['disadvantage', 'worse'], ['benefit', 'better'], ['mixed', 'mixed'], ['neutral', 'neutral']].map(([e, w]) => [list.filter(p => p.effect === e).length, w] as const).filter(([n]) => n > 0).map(([n, w]) => `${n} ${w}`).join(', ')}.</>
-        : `No changes between the ${r.priorYear} and ${r.currentYear} plans.`}</p>
-      <nav className="rec-tabs" aria-label="Provisions">
+      <div className="rec-bar">
+        {<nav className="rec-tabs" aria-label="Provisions">
         {([['all', 'All', all.length], ['benefits', 'Benefits', benefits.length], ['disadvantages', 'Disadvantages', disadvantages.length], ['differences', 'Differences', list.length]] as const).map(([k, label, n]) =>
           <button key={k} type="button" className={`rec-tab ${tab === k ? 'is-on' : ''}`} aria-current={tab === k ? 'page' : undefined} onClick={() => setRecTab(k)}>{label}<span className="ds-count">{n}</span></button>)}
-      </nav>
-      {changesTable(tab === 'benefits' ? benefits : tab === 'disadvantages' ? disadvantages : tab === 'differences' ? list : all, tab === 'benefits' ? 'No benefits found.' : tab === 'disadvantages' ? 'No disadvantages found.' : 'No provisions found.')}
+      </nav>}
+        <div className="view-toggle" role="group" aria-label="View">
+          <button type="button" className={recView === 'table' ? 'is-on' : ''} aria-pressed={recView === 'table'} onClick={() => setRecView('table')}><Icon name="grid" />Table view</button>
+          <button type="button" className={recView === 'list' ? 'is-on' : ''} aria-pressed={recView === 'list'} onClick={() => setRecView('list')} disabled={!!edit}><Icon name="list" />List view</button>
+        </div>
+      </div>
+      {recView === 'list' ? listView() : changesTable(tab === 'benefits' ? benefits : tab === 'disadvantages' ? disadvantages : tab === 'differences' ? list : all, tab === 'benefits' ? 'No benefits found.' : tab === 'disadvantages' ? 'No disadvantages found.' : 'No provisions found.')}
     </>;
   }
 
