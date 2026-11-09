@@ -419,7 +419,7 @@ export default function App() {
     };
     const changesTable = (rows: Provision[], empty: string) => rows.length ? (
       <div className={`dt ${edit ? 'dt--edit' : ''}`}>
-        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan</span><span>Comments</span><span>Impact</span></div>
+        <div className="dt-head" aria-hidden="true"><span>Change</span><span>Prior plan</span><span>Current plan</span><span>Comments</span><span>Impact</span></div>
         <ul className="dt-list" aria-label="Changes">
           {rows.map(p => <li key={p.id} className="dt-row">
             <div className="dt-name"><strong>{p.name}</strong>{p.change !== 'modified' && <span className={`dt-sub dt-sub--${p.change}`}>{CHANGE_LABEL[p.change]}</span>}</div>
@@ -451,8 +451,8 @@ export default function App() {
       return <div className="lv">
         <div className="lv-badge">After the takeover</div>
         <div className="lv-grid">
-          <div className="lv-head lv-head--prior"><h2>{r.priorYear} plan</h2><p>{r.priorProvider}</p><span>What participants have today</span></div>
-          <div className="lv-head lv-head--current"><h2>{r.currentYear} plan</h2><p>{r.currentProvider}</p><span>What participants get from the takeover</span></div>
+          <div className="lv-head lv-head--prior"><h2>Prior plan</h2><p>{r.priorProvider} · {r.priorYear}</p><span>What participants have today</span></div>
+          <div className="lv-head lv-head--current"><h2>Current plan</h2><p>{r.currentProvider} · {r.currentYear}</p><span>What participants get from the takeover</span></div>
           <div className="lv-stat lv-stat--prior"><b>{r.provisions.length}</b><span>provisions compared</span></div>
           <div className="lv-stat lv-stat--current"><b>{benefits.length}</b><span>{benefits.length === 1 ? 'key benefit' : 'key benefits'}</span><small>{disadvantages.length} worse · {mixed.length} mixed · {list.filter(p => p.effect === 'neutral').length} neutral</small></div>
         </div>
