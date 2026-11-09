@@ -2239,7 +2239,7 @@ fieldset.is-bad { outline: 1px solid var(--critical-text); outline-offset: 4px; 
 .fd-hero .fd-row:last-child { flex: none; }
 
 /* Table edit mode */
-.dt:not(.dt--plain) .dt-head, .dt:not(.dt--plain) .dt-row { grid-template-columns: minmax(130px, .8fr) minmax(0, 1fr) minmax(0, 1fr) 130px minmax(0, 1.2fr); }
+.dt:not(.dt--plain) .dt-head, .dt:not(.dt--plain) .dt-row { grid-template-columns: minmax(130px, .8fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) 130px; }
 .dt-row:hover { background: transparent; }
 .dt-v--note { color: var(--text-subtle); }
 .dt .fd-edit { font-size: 14px; padding: 6px 8px; margin: -7px -9px; width: calc(100% + 18px); }
@@ -2256,3 +2256,58 @@ fieldset.is-bad { outline: 1px solid var(--critical-text); outline-offset: 4px; 
 .dt-sop { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
 .dt-sop { margin: 4px 0 0; }
 .dt--edit .dt-sop { margin: 6px 0 0; }
+
+/* SOP slide-out */
+button.dt-sop { background: none; border: 0; padding: 0; font-family: inherit; cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px; }
+button.dt-sop:hover { color: var(--brand-strong); }
+.sop-layer { position: fixed; inset: 0; z-index: 400; display: flex; justify-content: flex-end; }
+.sop-scrim { position: absolute; inset: 0; background: rgba(15, 23, 42, .35); }
+.sop-panel { position: relative; width: min(880px, 100%); height: 100%; background: #fff; box-shadow: -8px 0 24px rgba(15,23,42,.16); display: flex; flex-direction: column; animation: sop-in .22s ease-out; }
+@keyframes sop-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+.sop-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 32px; border-bottom: 1px solid #e0e0e0; }
+.sop-head h2 { margin: 0; font-family: "Open Sans", sans-serif; font-size: 22px; line-height: 24px; font-weight: 600; letter-spacing: 0; color: #292929; }
+.sop-x { width: 32px; height: 32px; border: 0; background: none; border-radius: 4px; font-size: 18px; color: #5f6b7a; cursor: pointer; }
+.sop-x:hover { background: #f1f3f6; }
+.sop-body { padding: 16px 32px 32px; overflow-y: auto; font-family: "Open Sans", sans-serif; font-size: 14px; line-height: 20px; font-weight: 400; color: #3d3d3d; }
+.sop-body p { margin: 0 0 16px; }
+.sop-body strong { font-weight: 700; color: #292929; }
+.sop-body section { padding: 0; margin-top: 32px; }
+.sop-body section:first-of-type { margin-top: 16px; }
+.sop-body section.is-used { box-shadow: inset 3px 0 0 var(--brand-strong); padding-left: 14px; margin-left: -14px; }
+.sop-body h3 { margin: 0 0 12px; font-size: 16px; line-height: 16px; font-weight: 700; color: #292929; }
+.sop-body ul { margin: 0 0 16px; padding-left: 22px; }
+.sop-body li { margin-bottom: 6px; }
+.sop-body li.is-used { background: #e6edfa; border-radius: 4px; padding: 2px 6px; margin-left: -6px; }
+
+.sop-body dl { margin: 0; }
+.sop-body dt { font-size: 12px; line-height: 16px; font-weight: 700; color: #575757; margin-top: 12px; }
+.sop-body dd { margin: 4px 0 0; }
+.sop-body dd small { display: block; font-size: 12px; line-height: 16px; color: #575757; margin-top: 4px; }
+.sop-rule { margin-top: 12px; }
+.sop-rule p { margin: 4px 0 0; }
+
+.sop-box { background: #f5f5f5; border-radius: 8px; padding: 16px; margin-bottom: 16px; display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 16px; }
+.sop-box > div { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.sop-box span { font-size: 12px; line-height: 16px; font-weight: 700; color: #575757; }
+
+/* SOP slide-out text hierarchy: section 16 bold > label 14 semibold > value 14 regular > meta 12 */
+.sop-body .sop-ref { font-size: 12px; line-height: 16px; color: #575757; margin: 0; }
+.sop-body h3 { margin: 0 0 12px; font-size: 16px; line-height: 24px; font-weight: 700; color: #292929; }
+.sop-body section { margin-top: 32px; }
+.sop-body dt { font-size: 14px; line-height: 20px; font-weight: 600; color: #292929; margin-top: 16px; }
+.sop-body dt:first-child { margin-top: 0; }
+.sop-body dd { margin: 4px 0 0; font-size: 14px; line-height: 20px; font-weight: 400; color: #3d3d3d; }
+.sop-body dd small { font-size: 12px; line-height: 16px; font-weight: 400; color: #575757; margin-top: 4px; }
+.sop-rule { margin-top: 16px; }
+.sop-rule:first-of-type { margin-top: 0; }
+.sop-rule h4 { margin: 0; font-size: 14px; line-height: 20px; font-weight: 600; color: #292929; }
+.sop-rule p { margin: 4px 0 0; color: #3d3d3d; }
+
+.sop-box { display: block; }
+.sop-box .sop-row { display: grid; gap: 16px; }
+.sop-box .sop-row--3 { grid-template-columns: 1.2fr 1fr auto; }
+.sop-box .sop-row--2 { grid-template-columns: 1.2fr 1fr; }
+.sop-box .sop-row > div { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.sop-box hr { border: 0; border-top: 1px solid #d9d9d9; margin: 16px 0; }
+.sop-box .sop-row--3, .sop-box .sop-row--2 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.sop-box .sop-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }

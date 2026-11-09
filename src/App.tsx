@@ -8,7 +8,7 @@ import noRecordsImg from './assets/no-records.png';
 import galileoLogo from './assets/galileo-logo.svg';
 import {
   Avatar, Badge, Button, IconButton, InputText, Modal, Select, UploadStep,
-  TextArea, ToastStack, type ModalButton, type ToastItem,
+  ToastStack, type ModalButton, type ToastItem,
 } from './ui/components';
 
 type Page = 'dashboard' | 'create' | 'record';
@@ -93,13 +93,12 @@ export default function App() {
   // Review
   // Table edit mode: each change's comment, keyed by change id.
   const [edit, setEdit] = useState<Record<string, string> | null>(null);
-  const [recTab, setRecTab] = useState<'changes' | 'benefits' | 'unchanged'>('changes');
+  const [recTab, setRecTab] = useState<'all' | 'benefits' | 'disadvantages' | 'differences'>('all');
   const [submitOpen, setSubmitOpen] = useState(false);
   // Final review
-  const [declared, setDeclared] = useState(false);
-  const [submitTried, setSubmitTried] = useState(false);
   // Shell
   const [modal, setModal] = useState<ModalConfig | null>(null);
+  const [sopOpen, setSopOpen] = useState<Provision | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [navOpen, setNavOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
@@ -127,7 +126,7 @@ export default function App() {
   }, [page, activeId]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !modal) setNavOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !modal) { setNavOpen(false); setSopOpen(null); } };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [modal]);
@@ -185,7 +184,7 @@ export default function App() {
   };
 
   const openRecord = (id: string) => safeRoute(() => {
-    setActiveId(id); setPage('record'); setNavOpen(false); setEdit(null); setRecTab('changes'); setSubmitOpen(false); setDeclared(false); setSubmitTried(false);
+    setActiveId(id); setPage('record'); setNavOpen(false); setEdit(null); setRecTab('all'); setSubmitOpen(false);
     focusTop();
   });
 
@@ -229,11 +228,9 @@ export default function App() {
   /* ---------- submission ---------- */
   const submitReview = () => {
     if (!record) return;
-    setSubmitTried(true);
-    if (!declared) return;
     const now = new Date().toISOString();
     patchRecord(record.id, r => ({ ...r, submittedAt: now, submittedBy: Core.DEMO_USER, modifiedAt: now, modifiedBy: Core.DEMO_USER }));
-    setSubmitOpen(false); setSubmitTried(false); setEdit(null); focusTop(); toast('Review submitted.');
+    setSubmitOpen(false); setEdit(null); setPage('dashboard'); setActiveId(null); focusTop(); toast('Review submitted.');
   };
   const downloadReport = (r: PlanRecord) => {
     const blob = new Blob([Core.zipStore(Core.reportDocx(r))], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
@@ -390,32 +387,32 @@ export default function App() {
     if (!record) return ListView();
     if (record.status === 'cancelled') return FailedView();
     const r = record, locked = !!r.submittedAt, list = sorted(Core.changes(r));
-    const unchanged = r.provisions.filter(p => p.change === 'unchanged'), tab = list.length ? recTab : 'unchanged';
-    const benefits = list.filter(p => p.effect === 'benefit');
-    const startEdit = () => { if (tab === 'unchanged') setRecTab('changes'); setEdit(Object.fromEntries(list.map(p => [p.id, p.summary]))); };
-    const dirtyEdit = !!edit && list.some(p => edit[p.id] !== undefined && edit[p.id] !== p.summary);
+    const unchanged = r.provisions.filter(p => p.change === 'unchanged'), all = [...list, ...unchanged], tab = recTab;
+    const benefits = list.filter(p => p.effect === 'benefit'), disadvantages = list.filter(p => p.effect === 'disadvantage');
+    const startEdit = () => setEdit(Object.fromEntries(all.map(p => [p.id, p.summary])));
+    const dirtyEdit = !!edit && all.some(p => edit[p.id] !== undefined && edit[p.id] !== p.summary);
     const cancelEdit = () => dirtyEdit ? setModal({ title: 'Discard your changes?', body: <p>Your edits haven't been saved.</p>,
       buttons: [{ label: 'Keep editing', run: closeModal }, { label: 'Discard', variant: 'primary', run: () => { closeModal(); setEdit(null); } }] }) : setEdit(null);
     const saveEdit = () => {
       if (!edit) return;
       if (list.some(p => !(edit[p.id] ?? p.summary).trim())) { toast('Comments can\'t be empty.', 'error'); return; }
-      patchRecord(r.id, x => list.reduce((acc, p) => edit[p.id] !== undefined && edit[p.id] !== p.summary ? Core.updateFinding(acc, p.id, { summary: edit[p.id].trim() }) : acc, x));
+      patchRecord(r.id, x => all.reduce((acc, p) => edit[p.id] !== undefined && edit[p.id] !== p.summary ? Core.updateFinding(acc, p.id, { summary: edit[p.id].trim() }) : acc, x));
       setEdit(null); toast('Comments saved.');
     };
     const changesTable = (rows: Provision[], empty: string) => rows.length ? (
       <div className={`dt ${edit ? 'dt--edit' : ''}`}>
-        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan</span><span>Impact</span><span>Comments</span></div>
+        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan</span><span>Comments</span><span>Impact</span></div>
         <ul className="dt-list" aria-label="Changes">
           {rows.map(p => <li key={p.id} className="dt-row">
             <div className="dt-name"><strong>{p.name}</strong>{p.change !== 'modified' && <span className={`dt-sub dt-sub--${p.change}`}>{CHANGE_LABEL[p.change]}</span>}</div>
             <div className="dt-v dt-v--old">{valueText(p, 'prior')}</div>
             <div className="dt-v dt-v--new">{valueText(p, 'current')}</div>
-            <div className={`imp imp--${p.effect}`}><i />{EFFECTS[p.effect].label}</div>
             <div className="dt-v dt-v--note">
               {edit
                 ? <AutoArea aria-label={`${p.name}: comments`} maxLength={1000} placeholder="Add a comment" value={edit[p.id] ?? p.summary} onChange={e => setEdit(d => d && { ...d, [p.id]: e.target.value })} />
                 : <span>{p.summary}</span>}
-              {(p.sop ?? SOP_BY_ID.get(p.id)) && <strong className="dt-sop">Compared under {p.sop ?? SOP_BY_ID.get(p.id)}</strong>}</div>
+              {(p.sop ?? SOP_BY_ID.get(p.id)) && <button type="button" className="dt-sop" onClick={() => setSopOpen(p)}>Compared under {p.sop ?? SOP_BY_ID.get(p.id)}</button>}</div>
+            <div className={`imp imp--${p.effect}`}><i />{EFFECTS[p.effect].label}</div>
           </li>)}
         </ul>
       </div>
@@ -432,25 +429,16 @@ export default function App() {
             : <>
               <Button variant="tertiary" size="regular" icon="upload" onClick={() => reuploadFor(r)}>Reupload</Button>
               <Button variant="secondary" size="regular" disabled={!list.length} onClick={startEdit}>Edit</Button>
-              <Button variant="primary" size="regular" onClick={() => { setSubmitTried(false); setSubmitOpen(true); }}>Submit</Button></>}</div>
+              <Button variant="primary" size="regular" onClick={() => setSubmitOpen(true)}>Submit</Button></>}</div>
       </div>
       <p className="rec-summary">{list.length
         ? <>{list.length} {list.length === 1 ? 'change' : 'changes'} from {r.priorYear} to {r.currentYear}. Overall the {r.currentYear} plan is {list.filter(p => p.effect === 'disadvantage').length > list.filter(p => p.effect === 'benefit').length ? 'less' : 'more'} generous for participants: {[['disadvantage', 'worse'], ['benefit', 'better'], ['mixed', 'mixed'], ['neutral', 'neutral']].map(([e, w]) => [list.filter(p => p.effect === e).length, w] as const).filter(([n]) => n > 0).map(([n, w]) => `${n} ${w}`).join(', ')}.</>
         : `No changes between the ${r.priorYear} and ${r.currentYear} plans.`}</p>
       <nav className="rec-tabs" aria-label="Provisions">
-        {([['changes', 'Changes', list.length], ['benefits', 'Benefits', benefits.length], ['unchanged', 'Unchanged', unchanged.length]] as const).map(([k, label, n]) =>
+        {([['all', 'All', all.length], ['benefits', 'Benefits', benefits.length], ['disadvantages', 'Disadvantages', disadvantages.length], ['differences', 'Differences', list.length]] as const).map(([k, label, n]) =>
           <button key={k} type="button" className={`rec-tab ${tab === k ? 'is-on' : ''}`} aria-current={tab === k ? 'page' : undefined} onClick={() => setRecTab(k)}>{label}<span className="ds-count">{n}</span></button>)}
       </nav>
-      {tab === 'unchanged' ? null : changesTable(tab === 'benefits' ? benefits : list, tab === 'benefits' ? 'No benefits found.' : 'No changes found.')}
-      {tab !== 'unchanged' ? null
-      : unchanged.length > 0 ? (
-      <div className="dt dt--plain">
-        <div className="dt-head" aria-hidden="true"><span>Provision</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan</span></div>
-        <ul className="dt-list" aria-label="Unchanged provisions">
-          {unchanged.map(p => <li key={p.id} className="dt-row"><div className="dt-name"><strong>{p.name}</strong></div><div className="dt-v dt-v--old">{p.prior}</div><div className="dt-v dt-v--old">{p.current}</div></li>)}
-        </ul>
-      </div>
-      ) : <p className="ov-text">Every provision changed.</p>}
+      {changesTable(tab === 'benefits' ? benefits : tab === 'disadvantages' ? disadvantages : tab === 'differences' ? list : all, tab === 'benefits' ? 'No benefits found.' : tab === 'disadvantages' ? 'No disadvantages found.' : 'No provisions found.')}
     </>;
   }
 
@@ -458,16 +446,9 @@ export default function App() {
     if (!submitOpen || !record) return null;
     const r = record, list = Core.changes(r);
     const close = () => setSubmitOpen(false);
-    return <Modal title="Submit" onClose={close} initialFocus="final-notes"
+    return <Modal title="Submit" onClose={close}
       buttons={[{ label: 'Submit', variant: 'primary', run: submitReview }, { label: 'Cancel', run: close }]}>
       <p>You're submitting {list.length} {list.length === 1 ? 'change' : 'changes'} for {r.planName}.</p>
-      <label className="ds-label" htmlFor="final-notes">Additional comments (optional)</label>
-      <TextArea id="final-notes" className="fr-notes" rows={3} maxLength={2000} value={r.notes} onChange={e => patchRecord(r.id, x => ({ ...x, notes: e.target.value }))} />
-      <label className={`fr-declare ${submitTried && !declared ? 'is-bad' : ''}`}>
-        <input type="checkbox" checked={declared} onChange={e => setDeclared(e.target.checked)} />
-        <span>I checked these changes against the plan documents.</span>
-      </label>
-      {submitTried && !declared && <p className="field-err">Confirm to submit.</p>}
     </Modal>;
   }
 
@@ -525,11 +506,70 @@ export default function App() {
       <main id="main" className="main main--flow" tabIndex={-1} ref={mainRef}><div className="flow-content">{content}</div></main>
     </div>
     {SubmitModal()}
+    {sopOpen && record && <SopPanel p={sopOpen} rec={record} onClose={() => setSopOpen(null)} />}
     {modal && <Modal title={modal.title} wide={modal.wide} onClose={closeModal}
       buttons={modal.buttons ?? [{ label: 'Got it', variant: 'primary', run: closeModal }]}>{modal.body}</Modal>}
     <TooltipLayer />
     <ToastStack toasts={toasts} onDismiss={id => setToasts(t => t.filter(x => x.id !== id))} />
   </>;
+}
+
+// SOP rule text, keyed by the rule number a finding cites.
+const SOP_RULES: Record<string, { title: string; text: string }> = {
+  '1': { title: 'Rule 1 · Document selection', text: 'Current values come from the Adoption and Acceptance Agreement. Pre-filled template values change only for permitted appendices or one-off cases.' },
+  '2': { title: 'Rule 2 · Prior values', text: 'Prior values come from takeover documents. Use the latest effective document and any later amendment that supersedes it.' },
+  '3': { title: 'Rule 3 · Prior MEP', text: "For a prior MEP, the adopter's participation agreement determines the adopter-specific election. Later applicable amendments take precedence." },
+  '7': { title: 'Rule 7 · Comparison comments', text: 'Compare the prior and current provision and state the difference, the affected employees and the practical impact. Missing text is recorded as missing information; it is not treated as a removed benefit.' },
+  '8': { title: 'Rule 8 · Benefit-impact categories', text: 'Each difference is placed in a category: non-affecting (8.I), short-term (8.II) or long-term (8.III), depending on who is affected and for how long.' },
+  '8.I': { title: 'Rule 8.I · Non-affecting', text: 'A change that applies only to employees hired after the takeover, for example a service requirement moving from 2 to 4 months.' },
+  '8.II': { title: 'Rule 8.II · Short-term', text: 'Existing participants keep the prior conditions in the takeover year. The new condition applies to all employees in later years.' },
+  '8.III': { title: 'Rule 8.III · Long-term', text: 'Service or benefits already recognised under the predecessor plan stay credited after the takeover.' },
+};
+
+// Slide-out with the SOP rules this finding was compared under, and how they applied to it.
+function SopPanel({ p, rec, onClose }: { p: Provision; rec: PlanRecord; onClose: () => void }) {
+  const sop = p.sop ?? SOP_BY_ID.get(p.id) ?? '';
+  const keys = sop.replace(/SOP/gi, '').split(/[\s,]+|and/).filter(Boolean).filter(k => SOP_RULES[k]);
+  const doc = (side: Side) => rec.documents[side][0]?.name;
+  const where = (side: Side) => { const r = p.refs[side]; return r ? `${r.section}, page ${r.page}` : 'Not found in the document'; };
+  return <div className="sop-layer">
+    <div className="sop-scrim" onClick={onClose} />
+    <aside className="sop-panel" role="dialog" aria-modal="true" aria-labelledby="sop-title">
+      <header className="sop-head">
+        <h2 id="sop-title">Takeover Review SOP</h2>
+        <Button variant="secondary" size="regular" onClick={onClose}>Close</Button>
+      </header>
+      <div className="sop-body">
+        <div className="sop-box">
+          <div className="sop-row">
+            <div><span>Plan name</span><strong>{rec.planName}</strong></div>
+            <div><span>Prior plan</span><strong>{rec.priorProvider} · {rec.priorYear}</strong></div>
+            <div><span>Current plan</span><strong>{rec.currentProvider} · {rec.currentYear}</strong></div>
+          </div>
+          <hr />
+          <div className="sop-row">
+            <div><span>Provision</span><strong>{p.name}</strong></div>
+            <div><span>Impact</span><div className={`imp imp--${p.effect}`}><i />{EFFECTS[p.effect].label}</div></div>
+          </div>
+        </div>
+        <p className="sop-ref">Compared under {sop} · Plan comparison SOP - TA Doc Takeover reviews.docx</p>
+        <section>
+          <h3>Values and sources</h3>
+          <dl>
+            <dt>Prior value</dt>
+            <dd>{p.prior || 'Not in the previous plan'}<small>{doc('prior') ?? 'Previous plan document'} · {where('prior')}</small></dd>
+            <dt>Current value</dt>
+            <dd>{p.current || 'Not found in the current plan'}<small>{doc('current') ?? 'Current plan document'} · {where('current')}</small></dd>
+          </dl>
+        </section>
+        <section>
+          <h3>How the rules applied</h3>
+          {keys.map(k => <div key={k} className="sop-rule"><h4>{SOP_RULES[k].title}</h4><p>{SOP_RULES[k].text}</p></div>)}
+          <div className="sop-rule"><h4>Result for this provision</h4><p>{p.why}{p.participants ? ` Affects ${p.participants.charAt(0).toLowerCase()}${p.participants.slice(1)}` : ''}</p></div>
+        </section>
+      </div>
+    </aside>
+  </div>;
 }
 
 function Guide() {
