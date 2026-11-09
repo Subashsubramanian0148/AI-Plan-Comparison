@@ -182,7 +182,7 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
       onClick={() => input.current?.click()} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.current?.click(); } }}
       onDragOver={e => { e.preventDefault(); setOver(true); }} onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(false); }}
       onDrop={e => { e.preventDefault(); setOver(false); onFiles(Array.from(e.dataTransfer?.files || [])); }}>
-      <span className="up-drag"><Icon name="upload" />Drag &amp; Drop here</span><span>or</span><span className="up-browse">Browse File</span>
+      <span className="up-zone-ico"><Icon name="upload" /></span><span className="up-zone-t">Drop your file here or <u>browse</u></span><span className="up-zone-s">PDF or DOCX · max 50 MB</span>
     </div>);
   // Kit Drag & Drop Upload rows: Default (1027:8472) → Success (1027:8471) / Error (1027:8470).
   return (
@@ -198,6 +198,7 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
             {files.map((f, i) => {
               const pct = progress[f.name];
               return <li key={f.name + i} className="up-row-file">
+                <span className="up-ext" aria-hidden="true">{(f.name.split('.').pop() || '').slice(0, 4).toUpperCase()}</span>
                 <div className="up-row-file-main">
                   <div className="up-row-file-name"><span className="up-card-text" title={f.name}>{f.name}</span>
                     {pct !== undefined && pct < 100 ? <span className="up-row-pct">{pct}%</span> : <span className="up-badge up-badge--count">{f.size}</span>}</div>

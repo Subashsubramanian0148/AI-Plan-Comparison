@@ -270,6 +270,15 @@ export default function App() {
         <div className="page-header"><h1 className="page-title">Plan comparisons</h1></div>
         <Button variant="primary" size="regular" onClick={openCreate}>New comparison</Button>
       </div>
+      <div className="qa-cards">
+        <button type="button" className="qa-card" onClick={openCreate}>
+          <span className="qa-ico qa-ico--indigo"><Icon name="upload" /></span>
+          <span><strong>New comparison</strong><small>Upload two plan documents and compare them</small></span></button>
+        {([['review', 'Drafts', 'Comparisons you are still working on', 'edit', 'amber'], ['submitted', 'Submitted', 'Comparisons you have finished', 'checkCircle', 'green']] as const).map(([k, label, hint, ic, tone]) => (
+          <button key={k} type="button" className="qa-card" onClick={() => { setFilters(f => ({ ...f, status: k })); setDraftFilters(f => ({ ...f, status: k })); setVisibleCount(BATCH_SIZE); }}>
+            <span className={`qa-ico qa-ico--${tone}`}><Icon name={ic} /></span>
+            <span><strong>{label} <em>{all.filter(r => recordStatus(r) === k).length}</em></strong><small>{hint}</small></span></button>))}
+      </div>
       <form className="filter-bar" aria-label="Filter comparisons" onSubmit={e => { e.preventDefault(); setFilters({ ...draftFilters, plan: draftFilters.plan.trim() }); setVisibleCount(BATCH_SIZE); }}>
         <InputText id="filter-plan" label="Plan Name" icon="search" type="search" placeholder="Search plan or provider" maxLength={150}
           value={draftFilters.plan} onChange={e => setDraftFilters(f => ({ ...f, plan: e.target.value }))} />
@@ -404,7 +413,7 @@ export default function App() {
     };
     const changesTable = (rows: Provision[], empty: string) => rows.length ? (
       <div className={`dt ${edit ? 'dt--edit' : ''}`}>
-        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan</span><span>Impact</span><span>Comments</span></div>
+        <div className="dt-head" aria-hidden="true"><span>Change</span><span>{r.priorYear} plan</span><span>{r.currentYear} plan <em className="ai-pill"><Icon name="sparkles" />AI</em></span><span>Impact</span><span>Comments</span></div>
         <ul className="dt-list" aria-label="Changes">
           {rows.map(p => <li key={p.id} className="dt-row">
             <div className="dt-name"><strong>{p.name}</strong>{p.change !== 'modified' && <span className={`dt-sub dt-sub--${p.change}`}>{CHANGE_LABEL[p.change]}</span>}</div>
