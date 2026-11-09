@@ -14,6 +14,8 @@ const icons: Record<string, [string, string]> = {
   sparkles: ['sparkles', 'wand-magic-sparkles'], alert: ['triangle-exclamation', 'triangle-exclamation'],
   edit: ['pen', 'pen'], list: ['list-check', 'list-check'], view: ['eye', 'eye'], save: ['floppy-disk', 'floppy-disk'], menu: ['bars', 'bars'], spinner: ['spinner-third', 'spinner'],
   bell: ['bell', 'bell'], gauge: ['gauge-min', 'gauge'], payroll: ['file-invoice', 'file-invoice'], user: ['user', 'user'],
+  flag: ['flag', 'flag'], up: ['arrow-trend-up', 'arrow-trend-up'], down: ['arrow-trend-down', 'arrow-trend-down'], mixed: ['arrows-up-down', 'arrows-up-down'],
+  minus: ['minus', 'minus'], swap: ['arrow-right-arrow-left', 'arrow-right-arrow-left'], undo: ['arrow-rotate-left', 'arrow-rotate-left'],
   wrench: ['wrench', 'wrench'], transfer: ['right-left', 'right-left'], grid: ['grid-horizontal', 'table-cells'],
 };
 

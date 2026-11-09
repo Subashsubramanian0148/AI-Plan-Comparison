@@ -188,9 +188,10 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
   return (
     <section className={`up-step up-step--${status}`}>
       <div className="up-row">
-        <header className="up-step-head" title={hint}>
+        <header className="up-step-head">
           <h3 className="up-step-title">{title}</h3>
-          <p className="up-step-meta"><span>Accepted file : PDF, DOC, DOCX</span><span>Max File Size : 50 MB</span></p>
+          {hint && <p className="up-step-hint">{hint}</p>}
+          <p className="up-step-meta"><span>Accepted file : PDF, DOCX</span><span>Max File Size : 50 MB</span></p>
         </header>
         <div className="up-row-right">
           {!files.length ? zone : <ul className="up-row-files" aria-live="polite">
@@ -215,7 +216,7 @@ export function UploadStep({ title, hint, accept, multiple = true, onFiles, file
         </div>
       </div>
       {status === 'success' && <div className="up-assist up-assist--success"><Icon name="checkCircle" solid />Document(s) Uploaded Successfully!</div>}
-      {status === 'error' && <div className="up-assist up-assist--error" role="alert"><Icon name="alert" solid />{rejected.map(r => `${r.name}: ${r.reason}`).join(' ')}
+      {status === 'error' && <div className="up-assist up-assist--error" role="alert"><Icon name="alert" solid />{rejected.map(r => r.name ? `${r.name}: ${r.reason}` : r.reason).join(' ')}
         <button type="button" className="up-assist-dismiss" aria-label="Dismiss" onClick={onDismiss}><Icon name="close" /></button></div>}
       <input ref={input} type="file" hidden accept={accept} multiple={multiple} aria-label={title}
         onChange={e => { const picked = Array.from(e.target.files || []); if (picked.length) onFiles(picked); e.target.value = ''; }} />
