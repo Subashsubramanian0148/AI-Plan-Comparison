@@ -287,19 +287,13 @@ export default function App() {
     const q = filters.plan.trim().toLowerCase();
     const all = Core.filterRecords(records);
     const tabs: [string, string][] = [['', 'All'], ['review', 'Draft'], ['submitted', 'Submitted'], ['failed', 'Failed']];
-    const found = all.filter(r => (!q || `${r.planName} ${failedName(r)} ${r.priorProvider} ${r.currentProvider}`.toLowerCase().includes(q))
-      && (!filters.status || recordStatus(r) === filters.status));
+    const matches = (r: PlanRecord) => `${r.planName} ${failedName(r)} ${r.priorProvider} ${r.currentProvider}`.toLowerCase().includes(q);
+    const found = all.filter(r => (!q || matches(r)) && (!filters.status || recordStatus(r) === filters.status));
     const shown = found.slice(0, visibleCount), hasMore = shown.length < found.length;
     return <>
       <div className="page-title-row page-title-row--rule">
         <div className="page-header"><h1 className="page-title">Plan comparisons</h1></div>
         <Button variant="primary" size="regular" onClick={openCreate}>New comparison</Button>
-      </div>
-      <div className="qa-cards">
-        {([['submitted', 'Submitted', 'Comparisons you have finished', 'checkCircle', 'green'], ['review', 'Drafts', 'Comparisons you are still working on', 'edit', 'amber']] as const).map(([k, label, hint, ic, tone]) => (
-          <button key={k} type="button" className="qa-card" onClick={() => { setFilters(f => ({ ...f, status: k })); setDraftFilters(f => ({ ...f, status: k })); setVisibleCount(BATCH_SIZE); }}>
-            <span className={`qa-ico qa-ico--${tone}`}><Icon name={ic} /></span>
-            <span><strong>{label} <em>{all.filter(r => recordStatus(r) === k).length}</em></strong><small>{hint}</small></span></button>))}
       </div>
       <form className="filter-bar" aria-label="Filter comparisons" onSubmit={e => { e.preventDefault(); setFilters({ ...draftFilters, plan: draftFilters.plan.trim() }); setVisibleCount(BATCH_SIZE); }}>
         <InputText id="filter-plan" label="Plan Name" icon="search" type="search" placeholder="Search plan or provider" maxLength={150}
@@ -310,6 +304,12 @@ export default function App() {
           <Button type="submit" variant="secondary" size="regular">Search</Button>
         </div>
       </form>
+      <nav className="rec-tabs list-tabs" aria-label="Comparison status">
+        {([['', 'All'], ['submitted', 'Submitted'], ['review', 'Drafts'], ['failed', 'Failed']] as const).map(([k, label]) =>
+          <button key={k || 'all'} type="button" className={`rec-tab ${filters.status === k ? 'is-on' : ''}`} aria-current={filters.status === k ? 'page' : undefined}
+            onClick={() => { setFilters(f => ({ ...f, status: k })); setDraftFilters(f => ({ ...f, status: k })); setVisibleCount(BATCH_SIZE); }}>
+            {label}<span className="ds-count">{all.filter(r => (!q || matches(r)) && (!k || recordStatus(r) === k)).length}</span></button>)}
+      </nav>
       <div className="sl-count-row">
         <span className="record-count sl-count"><strong>{found.length}/{all.length}</strong> Record(s)</span>
         <Button variant="tertiary" size="regular" icon="download" disabled={!found.length} onClick={() => exportList(found)}>Export</Button>

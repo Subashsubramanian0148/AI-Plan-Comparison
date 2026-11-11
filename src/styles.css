@@ -2668,3 +2668,6 @@ button.dt-sop:hover { color: var(--brand-strong); }
 .up-optional { margin-left: 8px; padding: 2px 8px; border-radius: 16px; background: #f5f5f5; font: 600 12px/16px 'Open Sans', Arial, sans-serif; color: #575757; vertical-align: middle; }
 .up-pair .up-step-hint { margin: 0; font: 500 12px/16px 'Open Sans', Arial, sans-serif; color: #575757; }
 @media (max-width: 760px) { .up-pair--solo .up-row { grid-template-columns: 1fr !important; } }
+
+/* Plan comparisons: status tabs replace the quick links */
+.list-tabs { display: inline-flex; margin: 16px 0 0; }
