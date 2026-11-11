@@ -14,6 +14,7 @@ import {
 type Page = 'dashboard' | 'create' | 'record';
 type ModalConfig = { title: string; body: ReactNode; buttons?: ModalButton[]; wide?: boolean };
 
+type EditRow = { prior: string; current: string; summary: string };
 const STORAGE_KEY = 'core.ai-plan-comparison.prototype.v1';
 const BATCH_SIZE = 15;
 const EMPTY_FILTERS: Filters = { plan: '', review: '', date: '', status: '' };
@@ -81,6 +82,8 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   // Upload
   const [request, setRequest] = useState<Request>(Core.newRequest);
+  const [tor, setTor] = useState<{ name: string; size: number } | null>(null);
+  const [torError, setTorError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<{ bucket: Bucket; text: string } | null>(null);
   const [samePlan, setSamePlan] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -92,7 +95,7 @@ export default function App() {
   const [analysis, setAnalysis] = useState<{ result: PlanRecord; tick: number; request: Request } | null>(null);
   // Review
   // Table edit mode: each change's comment, keyed by change id.
-  const [edit, setEdit] = useState<Record<string, string> | null>(null);
+  const [edit, setEdit] = useState<Record<string, EditRow> | null>(null);
   const [recView, setRecView] = useState<'table' | 'list'>('table');
   const [recTab, setRecTab] = useState<'all' | 'benefits' | 'disadvantages' | 'differences'>('all');
   const [submitOpen, setSubmitOpen] = useState(false);
@@ -169,7 +172,7 @@ export default function App() {
   const goList = () => safeRoute(() => { setPage('dashboard'); setActiveId(null); setNavOpen(false); setAnalysis(null); focusTop(); });
 
   const openCreate = () => safeRoute(() => {
-    setRequest(Core.newRequest()); setUploadError(null); setSamePlan(false); setActiveId(null); setRetryOf(null); setAnalysis(null); setPage('create'); focusTop();
+    setRequest(Core.newRequest()); setTor(null); setTorError(null); setUploadError(null); setSamePlan(false); setActiveId(null); setRetryOf(null); setAnalysis(null); setPage('create'); focusTop();
   });
   // Retry a failed comparison: keep the document that was read, drop the one that wasn't.
   const retryFailed = (f: PlanRecord) => {
@@ -199,6 +202,22 @@ export default function App() {
     uploadedFiles.current.set(`${bucket}/${f.name}`, f);
     markUploading(); setSamePlan(false);
     setRequest(result.request); setUploadError(null);
+  };
+  const addTor = (files: File[]) => {
+    if (files.length > 1) { setTorError('Upload one TOR format document.'); return; }
+    const f = files[0];
+    if (!f) return;
+    const result = Core.addDocument(Core.newRequest(), 'prior', f);
+    if (result.error) { setTorError(result.error); return; }
+    uploadedFiles.current.set(`tor/${f.name}`, f);
+    markUploading(); setTor({ name: f.name, size: f.size }); setTorError(null);
+  };
+  const downloadTor = () => {
+    const file = tor && uploadedFiles.current.get(`tor/${tor.name}`);
+    if (!file) { toast('Sample documents can\'t be downloaded in this prototype.', 'error'); return; }
+    const url = URL.createObjectURL(file), el = document.createElement('a');
+    el.href = url; el.download = file.name; document.body.append(el); el.click(); el.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
   };
   const downloadUpload = (bucket: Bucket) => {
     const doc = request[bucket][0], file = doc && uploadedFiles.current.get(`${bucket}/${doc.name}`);
@@ -326,7 +345,7 @@ export default function App() {
     const both = Core.canStart(request), ready = both && !uploading && !blocking.length;
     const hasDocs = !!(request.prior.length || request.current.length);
     const aFailed = !!analysis && analysis.result.status === 'cancelled' && analysis.tick >= failAt, aDone = !!analysis && !aFailed && analysis.tick >= doneAt;
-    const slot = (bucket: Bucket, title: string, hint2: string) => <UploadStep title={title} hint={hint2} accept={ACCEPT} multiple={false}
+    const slot = (bucket: Bucket, title: string) => <UploadStep title={title} accept={ACCEPT} multiple={false}
       rejected={uploadError?.bucket === bucket ? [{ name: '', reason: uploadError.text, label: 'Not added' }] : []}
       onFiles={f => addFiles(bucket, f)} onRemove={() => { setRequest(r => ({ ...r, [bucket]: [] })); setUploadError(null); setSamePlan(false); }}
       onDismiss={() => setUploadError(null)} onReplace={(_, f) => addFiles(bucket, [f])} onDownload={() => downloadUpload(bucket)}
@@ -350,9 +369,15 @@ export default function App() {
             ? <p><strong>Retrying {failedName(f)}.</strong> {f.failure?.doc} couldn't be read and was removed. Add a text-based PDF or DOCX copy, then compare again.</p>
             : <p><strong>Reuploading for {f.planName}.</strong> Replace the document that was wrong, then compare again. This replaces the current changes and comments.</p>}</div>; })()}
         <div className="up-pair">
-          {slot('prior', 'Previous plan', 'The older plan year, for example 2025')}
+          {slot('prior', 'Previous plan')}
           <span className="up-pair-arrow" aria-hidden="true"><Icon name="arrowRight" /></span>
-          {slot('current', 'Current plan', 'The newer plan year, for example 2026')}
+          {slot('current', 'Current plan')}
+        </div>
+        <div className="up-pair up-pair--solo">
+          <UploadStep title="Existing TOR format" optional hint="Upload your current TOR template, if you have one. Without it the default TOR format is used."
+            accept={ACCEPT} multiple={false} rejected={torError ? [{ name: '', reason: torError, label: 'Not added' }] : []}
+            onFiles={addTor} onRemove={() => { setTor(null); setTorError(null); }} onDismiss={() => setTorError(null)} onReplace={(_, f) => addTor([f])} onDownload={downloadTor}
+            files={tor ? [{ name: tor.name, size: Core.fileSize(tor.size) }] : []} />
         </div>
         {/* Comparability check, once both documents are in. */}
         {!analysis && both && !uploading && (check.problems.length && blocking.length ? (
@@ -407,27 +432,31 @@ export default function App() {
     const r = record, locked = !!r.submittedAt, list = sorted(Core.changes(r));
     const unchanged = r.provisions.filter(p => p.change === 'unchanged'), all = [...list, ...unchanged], tab = recTab;
     const benefits = list.filter(p => p.effect === 'benefit'), disadvantages = list.filter(p => p.effect === 'disadvantage');
-    const startEdit = () => { setRecView('table'); setEdit(Object.fromEntries(all.map(p => [p.id, p.summary]))); };
-    const dirtyEdit = !!edit && all.some(p => edit[p.id] !== undefined && edit[p.id] !== p.summary);
+    const startEdit = () => { setRecView('table'); setEdit(Object.fromEntries(all.map(p => [p.id, { prior: p.prior, current: p.current, summary: p.summary }]))); };
+    const rowEdit = (p: Provision): EditRow => edit?.[p.id] ?? { prior: p.prior, current: p.current, summary: p.summary };
+    const rowDirty = (p: Provision) => { const e = rowEdit(p); return e.prior !== p.prior || e.current !== p.current || e.summary !== p.summary; };
+    const dirtyEdit = !!edit && all.some(rowDirty);
     const cancelEdit = () => dirtyEdit ? setModal({ title: 'Discard your changes?', body: <p>Your edits haven't been saved.</p>,
       buttons: [{ label: 'Keep editing', run: closeModal }, { label: 'Discard', variant: 'primary', run: () => { closeModal(); setEdit(null); } }] }) : setEdit(null);
     const saveEdit = () => {
       if (!edit) return;
-      if (list.some(p => !(edit[p.id] ?? p.summary).trim())) { toast('Comments can\'t be empty.', 'error'); return; }
-      patchRecord(r.id, x => all.reduce((acc, p) => edit[p.id] !== undefined && edit[p.id] !== p.summary ? Core.updateFinding(acc, p.id, { summary: edit[p.id].trim() }) : acc, x));
-      setEdit(null); toast('Comments saved.');
+      if (list.some(p => !rowEdit(p).summary.trim())) { toast('Comments can\'t be empty.', 'error'); return; }
+      // The original AI result stays in `ai`; only the visible fields change.
+      patchRecord(r.id, x => all.reduce((acc, p) => { if (!rowDirty(p)) return acc; const e = rowEdit(p); return Core.updateFinding(acc, p.id, { prior: e.prior.trim(), current: e.current.trim(), summary: e.summary.trim() }); }, x));
+      setEdit(null); toast('Changes saved.');
     };
+    const setRow = (p: Provision, patch: Partial<EditRow>) => setEdit(d => d && { ...d, [p.id]: { ...rowEdit(p), ...patch } });
     const changesTable = (rows: Provision[], empty: string) => rows.length ? (
       <div className={`dt ${edit ? 'dt--edit' : ''}`}>
         <div className="dt-head" aria-hidden="true"><span>Change</span><span>Prior plan</span><span>Current plan</span><span>Comments</span><span>Impact</span></div>
         <ul className="dt-list" aria-label="Changes">
           {rows.map(p => <li key={p.id} className="dt-row">
             <div className="dt-name"><strong>{p.name}</strong>{p.change !== 'modified' && <span className={`dt-sub dt-sub--${p.change}`}>{CHANGE_LABEL[p.change]}</span>}</div>
-            <div className="dt-v dt-v--old">{valueText(p, 'prior')}</div>
-            <div className="dt-v dt-v--new">{valueText(p, 'current')}</div>
+            <div className="dt-v dt-v--old">{edit ? <AutoArea aria-label={`${p.name}: prior plan`} maxLength={500} placeholder="Not in the previous plan" value={rowEdit(p).prior} onChange={e => setRow(p, { prior: e.target.value })} /> : valueText(p, 'prior')}</div>
+            <div className="dt-v dt-v--new">{edit ? <AutoArea aria-label={`${p.name}: current plan`} maxLength={500} placeholder="Not found in the current plan" value={rowEdit(p).current} onChange={e => setRow(p, { current: e.target.value })} /> : valueText(p, 'current')}</div>
             <div className="dt-v dt-v--note">
               {edit
-                ? <AutoArea aria-label={`${p.name}: comments`} maxLength={1000} placeholder="Add a comment" value={edit[p.id] ?? p.summary} onChange={e => setEdit(d => d && { ...d, [p.id]: e.target.value })} />
+                ? <AutoArea aria-label={`${p.name}: comments`} maxLength={1000} placeholder="Add a comment" value={rowEdit(p).summary} onChange={e => setRow(p, { summary: e.target.value })} />
                 : <span>{p.summary}</span>}
               {(p.sop ?? SOP_BY_ID.get(p.id)) && <button type="button" className="dt-sop" onClick={() => setSopOpen(p)}>Compared under {p.sop ?? SOP_BY_ID.get(p.id)}</button>}</div>
             <div className={`imp imp--${p.effect}`}><i />{EFFECTS[p.effect].label}</div>

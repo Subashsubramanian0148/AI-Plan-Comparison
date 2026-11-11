@@ -153,8 +153,8 @@ export function FileUploader({ title, optional, disabled, accept, multiple, onFi
 
 // Kit Drag & Drop Upload row (Figma 1027:847x): label left, drop zone or uploaded files right, success/error footer.
 export type RejectedFile = { name: string; reason: string; label: string };
-export function UploadStep({ title, accept, multiple = true, onFiles, files, rejected = [], onRemove, onReplace, onDownload, onDismiss }: {
-  step?: string; title: string; hint: string; accept: string; multiple?: boolean;
+export function UploadStep({ title, hint, optional, accept, multiple = true, onFiles, files, rejected = [], onRemove, onReplace, onDownload, onDismiss }: {
+  step?: string; title: string; hint?: string; optional?: boolean; accept: string; multiple?: boolean;
   onFiles: (files: File[]) => void; files: { name: string; size: string }[]; rejected?: RejectedFile[];
   onRemove: (i: number) => void; onReplace: (i: number, file: File) => void; onDownload: (i: number) => void; onDismiss: () => void;
 }) {
@@ -189,7 +189,8 @@ export function UploadStep({ title, accept, multiple = true, onFiles, files, rej
     <section className={`up-step up-step--${status}`}>
       <div className="up-row">
         <header className="up-step-head">
-          <h3 className="up-step-title">{title}</h3>
+          <h3 className="up-step-title">{title}{optional && <span className="up-optional">Optional</span>}</h3>
+          {hint && <p className="up-step-hint">{hint}</p>}
                     <p className="up-step-meta"><span>Accepted file : PDF, DOCX</span><span>Max File Size : 50 MB</span></p>
         </header>
         <div className="up-row-right">

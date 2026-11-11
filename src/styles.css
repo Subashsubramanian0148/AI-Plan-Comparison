@@ -2659,3 +2659,12 @@ button.dt-sop:hover { color: var(--brand-strong); }
 .up-pair .up-acts, .up-pair .up-card-top .up-act { flex: none; }
 .up-pair .up-card { grid-template-columns: minmax(0, 1fr); overflow: hidden; }
 .up-pair .up-row-file-main { flex: 1; }
+
+/* Existing TOR format: optional, one row under the two plan slots */
+.up-pair.up-pair--solo { grid-template-columns: 1fr !important; }
+.up-pair--solo .up-row { grid-template-columns: 1fr 1fr !important; }
+.up-pair--solo .up-step-head { padding-bottom: 16px !important; align-content: center; }
+.up-pair--solo .up-row-right { padding-top: 16px !important; }
+.up-optional { margin-left: 8px; padding: 2px 8px; border-radius: 16px; background: #f5f5f5; font: 600 12px/16px 'Open Sans', Arial, sans-serif; color: #575757; vertical-align: middle; }
+.up-pair .up-step-hint { margin: 0; font: 500 12px/16px 'Open Sans', Arial, sans-serif; color: #575757; }
+@media (max-width: 760px) { .up-pair--solo .up-row { grid-template-columns: 1fr !important; } }
